@@ -62,6 +62,48 @@ function aiBestMoves(hands,ends,player){
   return moves;
 }
 
+/* ---- IA con lookahead (minimax + poda alfa-beta) ---- */
+function _evalHeuristic(hands, rootTeam){
+  let my=0,opp=0;
+  for(let p=0;p<4;p++){const s=pipsOf(hands[p]); if(teamOf(p)===rootTeam)my+=s; else opp+=s;}
+  return (opp-my)*0.1;
+}
+function _minimax(hands, ends, cur, passes, depth, alpha, beta, rootTeam){
+  for(let p=0;p<4;p++) if(hands[p].size===0){ const rs=roundScore(hands,teamOf(p),"domino",0,null,p); return rs.winTeam===rootTeam?rs.points:-rs.points; }
+  if(passes>=4){ const rs=roundScore(hands,null,"tranca",0,null,null); return rs.winTeam===null?0:(rs.winTeam===rootTeam?rs.points:-rs.points); }
+  if(depth<=0) return _evalHeuristic(hands, rootTeam);
+  const moves=legalMoves([...hands[cur]], ends);
+  const isMax=teamOf(cur)===rootTeam;
+  if(!moves.length) return _minimax(hands, ends, (cur+1)%4, passes+1, depth-1, alpha, beta, rootTeam);
+  moves.forEach(m=>m._h=aiScore(hands,ends,cur,m));
+  moves.sort((a,b)=> isMax ? b._h-a._h : a._h-b._h);
+  let best=isMax?-Infinity:Infinity;
+  for(const m of moves){
+    hands[cur].delete(m.k);
+    const v=_minimax(hands, m.newEnds.slice(), (cur+1)%4, 0, depth-1, alpha, beta, rootTeam);
+    hands[cur].add(m.k);
+    if(isMax){ if(v>best)best=v; if(best>alpha)alpha=best; }
+    else { if(v<best)best=v; if(best<beta)beta=best; }
+    if(beta<=alpha) break;
+  }
+  return best;
+}
+function aiBestMovesDeep(hands, ends, player, passes, depth){
+  const rootTeam=teamOf(player);
+  const total=hands.reduce((n,h)=>n+h.size,0);
+  const D = depth || (total<=12 ? 99 : 8);
+  const moves=legalMoves([...hands[player]], ends);
+  if(!moves.length) return [];
+  const H=hands.map(h=>new Set(h));
+  moves.forEach(m=>{
+    H[player].delete(m.k);
+    m.score=_minimax(H, m.newEnds.slice(), (player+1)%4, 0, D-1, -Infinity, Infinity, rootTeam);
+    H[player].add(m.k);
+  });
+  moves.sort((a,b)=> b.score-a.score || (aiScore(hands,ends,player,b)-aiScore(hands,ends,player,a)));
+  return moves;
+}
+
 /* ---- simulación pura para estadísticas ---- */
 function simulateRound(handsArr,starter){
   const hands=handsArr.map(s=>new Set(s));

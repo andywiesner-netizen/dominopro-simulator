@@ -266,7 +266,7 @@ function simRender(){
   if(GS.over)return;const cur=GS.current;
   if(followTurn)viewAnchor=cur;
   $("#sWhoTurn").innerHTML=`Turno de <span class="tag tag${cur}">${ROLE[cur]}</span> <span class="muted">(${POS_COMPASS[posOf(cur)]})</span>`;
-  const moves=aiBestMoves(GS.hands,GS.ends,cur);const best=moves.length?moves[0].k:null;
+  const moves=aiBestMovesDeep(GS.hands,GS.ends,cur,GS.passes);const best=moves.length?moves[0].k:null;
   const hasPlayable=moves.length>0;
   const playable={};moves.forEach(m=>{(playable[m.k]=playable[m.k]||[]).push(m.side);});
   const showAll=$("#showAll").checked;
@@ -316,7 +316,7 @@ function simChoose(k,sides){
 function simDo(k,side){simPush();const p=GS.current;placeOnBoard(GS,k,side);GS.hands[p].delete(k);GS.lastKey=k;GS.passes=0;GS.log.push(`${ROLE[p]} juega ${k}`);simNext();}
 function simPass(){simPush();GS.log.push(`${ROLE[GS.current]} se pasa`);GS.passes++;simNext();}
 function simAIMove(silent){
-  if(GS.over)return;const cur=GS.current;const moves=aiBestMoves(GS.hands,GS.ends,cur);
+  if(GS.over)return;const cur=GS.current;const moves=aiBestMovesDeep(GS.hands,GS.ends,cur,GS.passes);
   if(!silent)simPush();else GS.history.push(simSnap());
   if(moves.length){const m=moves[0];placeOnBoard(GS,m.k,m.side);GS.hands[cur].delete(m.k);GS.lastKey=m.k;GS.passes=0;GS.log.push(`${ROLE[cur]} juega ${m.k}`);}
   else{GS.passes++;GS.log.push(`${ROLE[cur]} se pasa`);}
