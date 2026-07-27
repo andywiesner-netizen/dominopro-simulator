@@ -1,0 +1,3 @@
+# Despliegue del simulador como sitio estático (raíz del repo).
+[build]
+  publish = "."
