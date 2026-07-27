@@ -1,8 +1,9 @@
 /* Service worker: cachea la app para que funcione sin conexión.
    Al subir una versión nueva, cambia 'domino-v1' por 'domino-v2', etc. */
-const CACHE = "domino-v5";
+const CACHE = "domino-v6";
 const ASSETS = [
-  "./", "./index.html", "./manifest.webmanifest",
+  "./", "./index.html", "./styles.css", "./engine.js", "./ui.js",
+  "./manifest.webmanifest",
   "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"
 ];
 self.addEventListener("install", e => {
