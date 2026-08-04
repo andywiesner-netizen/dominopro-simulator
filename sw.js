@@ -1,6 +1,6 @@
 /* Service worker: cachea la app para que funcione sin conexión.
    Al subir una versión nueva, cambia 'domino-v1' por 'domino-v2', etc. */
-const CACHE = "domino-v6";
+const CACHE = "domino-v7";
 const ASSETS = [
   "./", "./index.html", "./styles.css", "./engine.js", "./ui.js",
   "./manifest.webmanifest",

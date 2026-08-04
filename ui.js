@@ -236,81 +236,100 @@ $("#sUndo").onclick=simUndo;
 $("#sStart").onclick=simToStart;
 $("#rBack").onclick=simUndo;
 $("#rStart").onclick=simToStart;
-$("#showAll").onchange=simRender;
+let verTodas=false;
 $("#rotView").onclick=()=>{viewAnchor=(viewAnchor+1)%4;simRender();};
-$("#followTurn").onchange=e=>{followTurn=e.target.checked;simRender();};
+$("#tbVer").onclick=()=>{verTodas=!verTodas;simRender();};
+$("#tbAzar").onclick=()=>{ // nuevo reparto al azar y reinicia la mano
+  owner={};simDealMode="aleatoria";const t=shuffle(allTiles().map(x=>key(x[0],x[1])));t.forEach((k,i)=>owner[k]=Math.floor(i/7));
+  simStarter=owner["6-6"]!==undefined?owner["6-6"]:0;startSimGame();
+};
+$("#tbPasa").onclick=()=>{ const m=aiBestMovesDeep(GS.hands,GS.ends,GS.current,GS.passes); if(m.length){toast(`${ROLE[GS.current]} sí tiene jugada`);return;} simPass(); };
 $("#aiOne").onclick=()=>{simAIMove();};
 $("#aiAll").onclick=()=>{let guard=0;while(!GS.over&&guard<200){simAIMove(true);guard++;}simRender();};
 
 // posiciones por rotación de vista: 0=abajo(Sur),1=der(Este),2=arriba(Norte),3=izq(Oeste)
-const POS_CLASS=["seatBottom","seatRight","seatTop","seatLeft"];
 const POS_COMPASS=["Sur","Este","Norte","Oeste"];
 const COMPASS={0:"Sur",1:"Este",2:"Norte",3:"Oeste"}; // por defecto (vista sin girar)
 let viewAnchor=0;   // qué asiento se muestra abajo
-let followTurn=false;
 function posOf(seat){return (seat-viewAnchor+4)%4;}
-function backTile(side){return `<span class="domino back"></span>`;}
+function backTile(portrait){return `<span class="domino back md${portrait?" vert":""}"></span>`;}
 function boardCenterHTML(cur){
   const banner=`<div class="banner">Partida ${simDealMode}. Sale ${ROLE[simStarter]} (${POS_COMPASS[posOf(simStarter)]}).</div>`;
   if(GS.ends===null)return banner+`<div class="muted center">Mesa vacía — sale ${ROLE[cur]}</div>`;
+  return banner+`<div class="board" id="boardChain"></div>`;
+}
+// Dibuja la cadena serpenteando y girando en las esquinas (tipo mesa real).
+// Filas alternas izq→der / der→izq; en las filas invertidas se voltea la ficha
+// para que los números sigan casando, y los dobles van cruzados (verticales).
+function fillBoardChain(){
+  const box=document.getElementById("boardChain");
+  if(!box) return;
   const line=orientedLine(GS.sequence);
-  const tiles=line.map(o=>{
+  if(!line.length){ box.innerHTML=""; return; }
+  const tileW=50;
+  const avail=box.clientWidth||240;
+  const K=Math.max(3,Math.floor((avail-8)/tileW));
+  box.style.gridTemplateColumns=`repeat(${K}, ${tileW}px)`;
+  box.innerHTML="";
+  line.forEach((o,i)=>{
+    const row=Math.floor(i/K), pos=i%K;
+    const col=(row%2===0)?pos:(K-1-pos);   // serpenteo
+    const flip=(row%2===1);                // filas der→izq: voltea la ficha
+    const a=flip?o.b:o.a, b=flip?o.a:o.b;
     const jp=(key(o.a,o.b)===GS.lastKey)?" justplayed":"";
-    return o.dbl ? tileHTML(o.a,o.b,"sm vert"+jp) : tileHTML(o.a,o.b,"sm"+jp);
-  }).join("");
-  return banner+`<div class="ends"><div class="endbox"><div class="lbl">IZQ</div><div class="val">${GS.ends[0]}</div></div>`+
-         `<div class="endbox"><div class="lbl">DER</div><div class="val">${GS.ends[1]}</div></div></div>`+
-         `<div class="snake">${tiles}</div>`;
+    const cls=o.dbl?("sm vert"+jp):("sm"+jp);
+    const cell=document.createElement("div");
+    cell.className="bcell";
+    cell.style.gridColumn=(col+1); cell.style.gridRow=(row+1);
+    cell.innerHTML=tileHTML(a,b,cls);
+    box.appendChild(cell);
+  });
+  // desplaza para ver la última ficha si hay muchas filas
+  const jp=box.querySelector(".justplayed");
+  if(jp) jp.scrollIntoView({block:"nearest",inline:"nearest"});
+}
+// posición de cada asiento en la mesa (según el giro): seat en la posición 'pos' = (pos+viewAnchor)%4
+function seatAtPos(pos){return (pos+viewAnchor)%4;}
+function renderBand(id,pos,ctx){
+  const el=document.getElementById(id);if(!el)return;el.innerHTML="";
+  const seat=seatAtPos(pos);
+  const portrait=(pos===0||pos===2);          // Norte/Sur de pie; Este/Oeste acostadas
+  const isCur=(seat===ctx.cur);
+  el.classList.toggle("active",isCur);
+  const lab=document.createElement("div");lab.className="lbl";
+  lab.innerHTML=`${isCur?"▸ ":""}${ROLE[seat]} · ${POS_COMPASS[pos]} · ${GS.hands[seat].size}·${pipsOf(GS.hands[seat])}p`;
+  const wrap=document.createElement("div");wrap.className=portrait?"hand":"handv";
+  const vis=ctx.showAll||isCur||seat===0;      // TÚ siempre visible
+  [...GS.hands[seat]].sort((a,b)=>pip(kt(b))-pip(kt(a))).forEach(k=>{
+    const t=kt(k);const d=document.createElement("div");d.className="pick";
+    if(!vis){d.innerHTML=backTile(portrait);}
+    else{
+      d.innerHTML=tileHTML(t[0],t[1],portrait?"md vert":"md")+((isCur&&k===ctx.best)?'<span class="star">⭐</span>':'');
+      if(isCur){ if(ctx.playable[k]){ d.classList.add("playable"); d.onclick=()=>simChoose(k,ctx.playable[k]); } else if(ctx.hasPlayable) d.classList.add("dim"); }
+    }
+    wrap.appendChild(d);
+  });
+  if(pos===0){el.appendChild(wrap);el.appendChild(lab);}else{el.appendChild(lab);el.appendChild(wrap);}
 }
 function simRender(){
   if(GS.over)return;const cur=GS.current;
-  if(followTurn)viewAnchor=cur;
-  $("#sWhoTurn").innerHTML=`Turno de <span class="tag tag${cur}">${ROLE[cur]}</span> <span class="muted">(${POS_COMPASS[posOf(cur)]})</span>`;
   const moves=aiBestMovesDeep(GS.hands,GS.ends,cur,GS.passes);const best=moves.length?moves[0].k:null;
   const hasPlayable=moves.length>0;
   const playable={};moves.forEach(m=>{(playable[m.k]=playable[m.k]||[]).push(m.side);});
-  const showAll=$("#showAll").checked;
-  const mesa=$("#mesa");mesa.innerHTML="";
-  [0,1,2,3].forEach(p=>{
-    const pos=posOf(p);
-    const side=(pos===1||pos===3);
-    const el=document.createElement("div");el.className="seat "+POS_CLASS[pos]+(p===cur?" active":"");
-    const lab=document.createElement("div");lab.className="seatlab lab"+p;
-    lab.innerHTML=`${p===cur?'<span class="turnarrow">▸</span> ':''}${ROLE[p]} <span class="cmp">${POS_COMPASS[pos]}</span> · <span class="muted">${GS.hands[p].size}·${pipsOf(GS.hands[p])}p</span>`;
-    const tw=document.createElement("div");tw.className="seattiles"+(side?" vertical":"");
-    const vis=showAll||p===cur;
-    [...GS.hands[p]].sort((a,b)=>pip(kt(b))-pip(kt(a))).forEach(k=>{
-      const t=kt(k);const d=document.createElement("div");d.className="pick";
-      if(!vis){d.innerHTML=backTile(side);}
-      else{
-        d.innerHTML=tileHTML(t[0],t[1],"sm")+((p===cur&&k===best)?`<span class="star">⭐</span>`:"");
-        if(p===cur){ if(playable[k]){ d.classList.add("playable"); d.onclick=()=>simChoose(k,playable[k]); } else if(hasPlayable) d.classList.add("dim"); }
-      }
-      tw.appendChild(d);
-    });
-    // etiqueta hacia el centro: arriba para los de arriba/lados; debajo para el de abajo
-    if(pos===0){el.appendChild(tw);el.appendChild(lab);}else{el.appendChild(lab);el.appendChild(tw);}
-    mesa.appendChild(el);
-  });
-  const center=document.createElement("div");center.className="seatCenter boardcenter";
-  center.innerHTML=boardCenterHTML(cur);mesa.appendChild(center);
-  // auto-scroll de la cadena hacia la última ficha jugada
-  const snake=center.querySelector(".snake"),jp=center.querySelector(".snake .justplayed");
-  if(snake&&jp){snake.scrollLeft=Math.max(0,jp.offsetLeft-snake.clientWidth/2+jp.offsetWidth/2);}
-  // panel de acción
-  const ac=$("#sActionCard");
-  if(!moves.length){
-    ac.innerHTML=`<div class="muted"><b class="lab${cur}">${ROLE[cur]}</b> no tiene jugada.</div>`;
-    const b=document.createElement("button");b.className="btn ghost";b.style.cssText="margin-top:8px;width:100%";
-    b.textContent=`Pasar turno de ${ROLE[cur]}`;b.onclick=()=>simPass();ac.appendChild(b);
-  }else{
-    ac.innerHTML=`<div class="muted">Toca una ficha de <b class="lab${cur}">${ROLE[cur]}</b> ⭐, o deja jugar a la IA.</div><div id="sSideBox"></div>`;
-  }
+  const ctx={cur,best,hasPlayable,playable,showAll:verTodas};
+  const sc=document.getElementById("dscore");if(sc)sc.innerHTML=`S-N <b>0</b> · E-O <b>0</b>`;
+  renderBand("bandN",2,ctx); renderBand("bandS",0,ctx); renderBand("bandW",3,ctx); renderBand("bandE",1,ctx);
+  const dc=document.getElementById("dcenter");if(dc)dc.innerHTML=boardCenterHTML(cur);
+  fillBoardChain();
+  const tv=document.getElementById("tbVer");if(tv)tv.textContent=verTodas?"🙈 Ocultar":"👁 Ver todas";
 }
+function dpanel(html){const dp=document.getElementById("dpanel");if(!dp)return;dp.innerHTML=html;dp.style.display="block";}
+function clearPanel(){const dp=document.getElementById("dpanel");if(dp){dp.innerHTML="";dp.style.display="none";}}
 function simChoose(k,sides){
-  if(GS.ends!==null&&sides.length===2){const box=$("#sSideBox");
-    box.innerHTML=`<div class="sidechoice"><span class="muted">${tileK(k)} ¿punta?</span><button class="btn gold" data-s="I">IZQ (${GS.ends[0]})</button><button class="btn gold" data-s="D">DER (${GS.ends[1]})</button></div>`;
-    box.querySelectorAll("button").forEach(b=>b.onclick=()=>simDo(k,b.dataset.s));
+  if(GS.ends!==null&&sides.length===2){
+    dpanel(`<div class="ovcard"><div class="center" style="margin-bottom:8px">${tileK(k)} ¿por qué punta?</div>`+
+      `<div class="btnrow grow"><button class="btn gold" data-s="I">IZQ (${GS.ends[0]})</button><button class="btn gold" data-s="D">DER (${GS.ends[1]})</button></div></div>`);
+    document.querySelectorAll("#dpanel button[data-s]").forEach(b=>b.onclick=()=>{clearPanel();simDo(k,b.dataset.s);});
   }else simDo(k,GS.ends===null?"inicio":sides[0]);
 }
 function simDo(k,side){simPush();const p=GS.current;placeOnBoard(GS,k,side);GS.hands[p].delete(k);GS.lastKey=k;GS.passes=0;GS.log.push(`${ROLE[p]} juega ${k}`);simNext();}
@@ -420,29 +439,31 @@ function loadPosition(pos){
   GS={hands:pos.hands.map(a=>new Set(a)),ends:pos.ends?pos.ends.slice():null,sequence:pos.sequence.slice(),
       current:pos.current,passes:pos.passes||0,over:false,history:[],log:[]};
   GS.initial=simSnap();
-  show('simGame');simRender();toast("Mano cargada");
+  clearPanel();show('simGame');simRender();toast("Mano cargada");
 }
 $("#savePos").onclick=()=>doSave(posFromGame(),"Foto "+itemDate({createdAt:nowISO()}));
-let gameSavesOpen=false;
-$("#openSaves").onclick=()=>{gameSavesOpen=!gameSavesOpen;if(gameSavesOpen)renderSaves("gameSaves");else $("#gameSaves").innerHTML="";};
+$("#openSaves").onclick=()=>{
+  dpanel(`<div class="ovcard"><div class="center" style="margin-bottom:6px"><b>Manos guardadas</b></div><div id="gameSaves"></div><button class="btn ghost" style="width:100%;margin-top:8px" onclick="clearPanel()">Cerrar</button></div>`);
+  renderSaves("gameSaves");
+};
 let dealSavesOpen=false;
 $("#simOpenSaves").onclick=()=>{dealSavesOpen=!dealSavesOpen;if(dealSavesOpen)renderSaves("dealSaves");else $("#dealSaves").innerHTML="";};
 
 $("#winProb").onclick=()=>{
   if(GS.over){toast("La ronda ya terminó");return;}
-  $("#sProb").innerHTML=`<div class="muted" style="margin-top:10px">Calculando…</div>`;
+  dpanel(`<div class="ovcard"><div class="muted center">Calculando…</div></div>`);
   setTimeout(()=>{
     const r=winProbMC(posFromGame(),2000,1.1);
     const pa=Math.round(r.pA*100),pb=Math.round(r.pB*100),pt=Math.round(r.pTie*100);
-    $("#sProb").innerHTML=`<div class="probpanel">
-      <div class="row"><b class="lab0">TÚ+CO</b><b>${pa}%</b></div>
+    dpanel(`<div class="ovcard"><div class="probpanel">
+      <div class="row"><b class="lab0">TÚ+CO (S-N)</b><b>${pa}%</b></div>
       <div class="bar"><div class="seg" style="width:${pa}%;background:var(--pTU)"></div><div class="seg" style="width:${pb}%;background:var(--pRD)"></div><div class="seg" style="width:${pt}%;background:#666"></div></div>
-      <div class="row" style="margin-top:6px"><b class="lab1">RD+RI</b><b>${pb}%</b></div>
+      <div class="row" style="margin-top:6px"><b class="lab1">RD+RI (E-O)</b><b>${pb}%</b></div>
       <div class="row"><span class="muted">empate (tranca)</span><span>${pt}%</span></div>
       <div class="row" style="margin-top:6px"><span class="muted">terminan en dominó</span><span>${Math.round(r.pDom*100)}%</span></div>
       <div class="row"><span class="muted">puntos medios si gana cada una</span><span>${r.avgA.toFixed(0)} / ${r.avgB.toFixed(0)}</span></div>
-      <div class="muted" style="margin-top:6px;font-size:.72rem">${r.N} simulaciones desde esta posición, con juego algo imperfecto (Monte Carlo).</div>
-    </div>`;
+      <div class="muted" style="margin-top:6px;font-size:.72rem">${r.N} simulaciones (Monte Carlo).</div>
+      </div><button class="btn ghost" style="width:100%;margin-top:8px" onclick="clearPanel()">Cerrar</button></div>`);
   },30);
 };
 

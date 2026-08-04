@@ -127,35 +127,39 @@
     </div>
   </div>
 
-  <!-- ================= SIM GAME ================= -->
+  <!-- ================= SIM GAME (mesa a pantalla completa) ================= -->
   <div id="simGame" class="hidden">
-    <div class="topbar"><button class="backbtn" data-simdeal>← Reparto</button></div>
-    <div class="turnbar" style="margin-bottom:6px">
-      <div id="sWhoTurn" class="who"></div>
-      <div class="btnrow">
-        <button id="sStart" class="btn ghost" style="padding:7px 10px;font-size:.8rem">⏮︎ Inicio</button>
-        <button id="sUndo" class="btn ghost" style="padding:7px 10px;font-size:.8rem">◀︎ Atrás</button>
-      </div>
+    <div id="rotateHint">
+      <div style="font-size:3rem">🔄📱</div>
+      <div style="font-size:1.2rem;font-weight:800">Gira el teléfono</div>
+      <div class="sub">La mesa completa se juega en horizontal</div>
     </div>
-    <div id="mesa" class="mesa"></div>
-    <div class="card">
-      <div id="sActionCard"></div>
-      <div class="btnrow grow" style="margin-top:8px">
-        <button class="btn gold" id="aiOne">🤖 IA juega turno</button>
-        <button class="btn blue" id="aiAll">⏭️ IA hasta el final</button>
+    <div class="dtable">
+      <div class="dtoolbar">
+        <button class="tb b-user" data-simdeal>← Reparto</button>
+        <button class="tb b-azar" id="tbAzar">🎲 Al Azar</button>
+        <button class="tb b-rew" id="sStart">⏮ Inicio</button>
+        <button class="tb b-back" id="sUndo">◀ Atrás</button>
+        <button class="tb b-pasa" id="tbPasa">⏭ Pasa</button>
+        <button class="tb b-sug" id="aiOne">🤖 IA turno</button>
+        <button class="tb b-sim" id="aiAll">⏭️ IA final</button>
+        <button class="tb b-man" id="winProb">🎲 Prob</button>
+        <button class="tb b-guar" id="savePos">💾 Guardar</button>
+        <button class="tb b-car" id="openSaves">📂 Cargar</button>
+        <button class="tb b-copiar" id="tbVer">👁 Ver todas</button>
+        <button class="tb b-copiar" id="rotView">🔄 Girar</button>
+        <span class="dscore" id="dscore"></span>
       </div>
-      <div class="btnrow grow" style="margin-top:8px">
-        <button class="btn ghost" id="savePos">📸 Guardar foto</button>
-        <button class="btn ghost" id="openSaves">📂 Cargar</button>
-        <button class="btn ghost" id="winProb">🎲 Prob. ganar</button>
+      <div class="felt">
+        <div class="band norte" id="bandN"></div>
+        <div class="mid">
+          <div class="band oeste" id="bandW"></div>
+          <div class="dcenter" id="dcenter"></div>
+          <div class="band este" id="bandE"></div>
+        </div>
+        <div class="band sur" id="bandS"></div>
       </div>
-      <div id="sProb"></div>
-      <div id="gameSaves"></div>
-      <div class="btnrow grow" style="margin-top:8px">
-        <button class="btn ghost" id="rotView">🔄 Girar mesa</button>
-      </div>
-      <div style="margin-top:8px"><label style="font-size:.82rem"><input type="checkbox" id="followTurn"> Poner abajo al jugador en turno</label></div>
-      <div style="margin-top:6px"><label style="font-size:.82rem"><input type="checkbox" id="showAll" checked> Ver todas las manos (mesa abierta)</label></div>
+      <div id="dpanel"></div>
     </div>
   </div>
 
