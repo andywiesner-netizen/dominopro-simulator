@@ -12,9 +12,10 @@ const $=s=>document.querySelector(s);
 const SCREENS=['home','liveSetup','liveGame','liveResult','simDeal','simGame','simResult','simBulk'];
 function show(id){SCREENS.forEach(s=>document.getElementById(s).classList.toggle('hidden',s!==id));window.scrollTo(0,0);}
 document.querySelectorAll('[data-home]').forEach(b=>b.onclick=()=>show('home'));
-document.querySelectorAll('[data-simdeal]').forEach(b=>b.onclick=()=>show('simDeal'));
+document.querySelectorAll('[data-simdeal]').forEach(b=>b.onclick=()=>{simDealInit();show('simDeal');});
 $("#goLive").onclick=()=>{liveRestart();show('liveSetup');};
 $("#goSim").onclick=()=>{simDealInit();show('simDeal');};
+$("#tbLive").onclick=()=>{liveRestart();show('liveSetup');};
 
 let toastT=null;
 function toast(msg){const t=$("#toast");t.textContent=msg;t.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove("show"),1400);}
@@ -243,9 +244,9 @@ $("#tbAzar").onclick=()=>{ // nuevo reparto al azar y reinicia la mano
   owner={};simDealMode="aleatoria";const t=shuffle(allTiles().map(x=>key(x[0],x[1])));t.forEach((k,i)=>owner[k]=Math.floor(i/7));
   simStarter=owner["6-6"]!==undefined?owner["6-6"]:0;startSimGame();
 };
-$("#tbPasa").onclick=()=>{ const m=aiBestMovesDeep(GS.hands,GS.ends,GS.current,GS.passes); if(m.length){toast(`${ROLE[GS.current]} sí tiene jugada`);return;} simPass(); };
-$("#aiOne").onclick=()=>{simAIMove();};
-$("#aiAll").onclick=()=>{let guard=0;while(!GS.over&&guard<200){simAIMove(true);guard++;}simRender();};
+$("#tbPasa").onclick=()=>{ if(!GS){toast("Primero reparte: Al Azar o Reparto");return;} const m=aiBestMovesDeep(GS.hands,GS.ends,GS.current,GS.passes); if(m.length){toast(`${ROLE[GS.current]} sí tiene jugada`);return;} simPass(); };
+$("#aiOne").onclick=()=>{ if(!GS){toast("Primero reparte: Al Azar o Reparto");return;} simAIMove(); };
+$("#aiAll").onclick=()=>{ if(!GS){toast("Primero reparte: Al Azar o Reparto");return;} let guard=0;while(!GS.over&&guard<200){simAIMove(true);guard++;}simRender(); };
 
 // posiciones por rotación de vista: 0=abajo(Sur),1=der(Este),2=arriba(Norte),3=izq(Oeste)
 const POS_COMPASS=["Sur","Este","Norte","Oeste"];
@@ -311,7 +312,15 @@ function renderBand(id,pos,ctx){
   });
   if(pos===0){el.appendChild(wrap);el.appendChild(lab);}else{el.appendChild(lab);el.appendChild(wrap);}
 }
+function simIdle(){
+  ["bandN","bandS","bandW","bandE"].forEach(id=>{const el=document.getElementById(id);if(!el)return;el.innerHTML="";el.classList.remove("active");});
+  const dc=document.getElementById("dcenter");if(dc)dc.innerHTML=`<div class="muted center" style="font-size:1.05rem">Elige un modo arriba para comenzar</div>`;
+  const sc=document.getElementById("dscore");if(sc)sc.innerHTML="";
+  const tv=document.getElementById("tbVer");if(tv)tv.textContent="👁 Ver todas";
+  clearPanel();
+}
 function simRender(){
+  if(!GS){simIdle();return;}
   if(GS.over)return;const cur=GS.current;
   const moves=aiBestMovesDeep(GS.hands,GS.ends,cur,GS.passes);const best=moves.length?moves[0].k:null;
   const hasPlayable=moves.length>0;
@@ -335,7 +344,7 @@ function simChoose(k,sides){
 function simDo(k,side){simPush();const p=GS.current;placeOnBoard(GS,k,side);GS.hands[p].delete(k);GS.lastKey=k;GS.passes=0;GS.log.push(`${ROLE[p]} juega ${k}`);simNext();}
 function simPass(){simPush();GS.log.push(`${ROLE[GS.current]} se pasa`);GS.passes++;simNext();}
 function simAIMove(silent){
-  if(GS.over)return;const cur=GS.current;const moves=aiBestMovesDeep(GS.hands,GS.ends,cur,GS.passes);
+  if(!GS||GS.over)return;const cur=GS.current;const moves=aiBestMovesDeep(GS.hands,GS.ends,cur,GS.passes);
   if(!silent)simPush();else GS.history.push(simSnap());
   if(moves.length){const m=moves[0];placeOnBoard(GS,m.k,m.side);GS.hands[cur].delete(m.k);GS.lastKey=m.k;GS.passes=0;GS.log.push(`${ROLE[cur]} juega ${m.k}`);}
   else{GS.passes++;GS.log.push(`${ROLE[cur]} se pasa`);}
@@ -441,7 +450,7 @@ function loadPosition(pos){
   GS.initial=simSnap();
   clearPanel();show('simGame');simRender();toast("Mano cargada");
 }
-$("#savePos").onclick=()=>doSave(posFromGame(),"Foto "+itemDate({createdAt:nowISO()}));
+$("#savePos").onclick=()=>{ if(!GS){toast("Primero reparte: Al Azar o Reparto");return;} doSave(posFromGame(),"Foto "+itemDate({createdAt:nowISO()})); };
 $("#openSaves").onclick=()=>{
   dpanel(`<div class="ovcard"><div class="center" style="margin-bottom:6px"><b>Manos guardadas</b></div><div id="gameSaves"></div><button class="btn ghost" style="width:100%;margin-top:8px" onclick="clearPanel()">Cerrar</button></div>`);
   renderSaves("gameSaves");
@@ -450,6 +459,7 @@ let dealSavesOpen=false;
 $("#simOpenSaves").onclick=()=>{dealSavesOpen=!dealSavesOpen;if(dealSavesOpen)renderSaves("dealSaves");else $("#dealSaves").innerHTML="";};
 
 $("#winProb").onclick=()=>{
+  if(!GS){toast("Primero reparte: Al Azar o Reparto");return;}
   if(GS.over){toast("La ronda ya terminó");return;}
   dpanel(`<div class="ovcard"><div class="muted center">Calculando…</div></div>`);
   setTimeout(()=>{
@@ -507,9 +517,9 @@ function runBulk(N){
   $("#bulkOut").innerHTML=h;
 }
 
-// arranque
+// arranque: entra directo a la mesa, vacía hasta que se reparta (Al Azar / Reparto)
 buildPicker();buildOwnerGrid();
-show('home');
+simIdle();show('simGame');
 
 // registro del service worker (para funcionar sin conexión / instalable)
 if("serviceWorker" in navigator){
