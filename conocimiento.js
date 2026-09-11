@@ -124,7 +124,116 @@ function analizarMano(misFichas, jugadas = []) {
   };
 }
 
+/* ================= ASESOR DE SALIDA =================
+   Principios del taller, no leyes: el propio taller avisa de que la salida
+   se juzga también por la tantera. La función es pura y devuelve además el
+   motivo en lenguaje de mesa y una confianza, para que quien lo lea sepa
+   cuánto pesa el consejo.
+
+   Acompañamiento de un doble = cuántas fichas de su palo tienes, contándolo:
+   1 en pelo, 2 en segunda, 3 en tercera, 4 en cuarta, 5 en quinta, 6 en
+   sexta, 7 en séptima. */
+const ACOMP = { 1: "en pelo", 2: "en segunda", 3: "en tercera", 4: "en cuarta",
+                5: "en quinta", 6: "en sexta", 7: "en séptima" };
+const NOTA_TANTERA = "Es un principio, no una ley: según cómo vaya la tantera " +
+  "—si ganas o pierdes por mucho— la salida puede cambiar.";
+
+function asesorSalida(misFichas) {
+  const mano = fichas(misFichas);
+  if (!mano.length) return null;
+
+  const cuenta = [0, 0, 0, 0, 0, 0, 0];
+  mano.forEach(t => { cuenta[t[0]]++; if (t[0] !== t[1]) cuenta[t[1]]++; });
+  const esDoble = t => t[0] === t[1];
+  const hayFuerza = p => cuenta[p] >= 4 || (cuenta[p] === 3 && mano.some(t => t[0] === p && t[1] === p));
+
+  // dobles con su acompañamiento, de mejor a peor y, a igualdad, de mayor a menor
+  const dobles = mano.filter(esDoble)
+    .map(t => ({ ficha: nombreFicha(t), palo: t[0], acomp: cuenta[t[0]] }))
+    .sort((a, b) => b.acomp - a.acomp || b.palo - a.palo);
+
+  const alternativas = [];
+  const apunta = (ficha, nota) => { if (ficha) alternativas.push({ ficha, nota }); };
+  const cierra = (ficha, pensada, motivo, confianza) =>
+    ({ ficha, pensada, motivo: motivo + " " + NOTA_TANTERA, confianza,
+       alternativas: alternativas.filter(a => a.ficha !== ficha) });
+
+  // Regla 5: con el doble en sexta o séptima no se sale. En sexta, si la
+  // séptima ficha es otro doble, la salida es ese otro doble.
+  const cargado = dobles.find(d => d.acomp >= 6);
+  if (cargado) {
+    const suelta = mano.filter(t => t[0] !== cargado.palo && t[1] !== cargado.palo);
+    const otroDoble = suelta.find(esDoble);
+    if (cargado.acomp === 6 && otroDoble) {
+      apunta(cargado.ficha, `no se sale con el ${cargado.ficha} ${ACOMP[6]}`);
+      return cierra(nombreFicha(otroDoble), "CPP",
+        `El ${cargado.ficha} está ${ACOMP[cargado.acomp]}: con tanto de un palo no se sale por ahí. ` +
+        `Sale el otro doble, el ${nombreFicha(otroDoble)}, con pensada.`, "media");
+    }
+  }
+
+  // Candidatos: dobles acompañados (2 o más) que no estén en sexta ni séptima.
+  const acompañados = dobles.filter(d => d.acomp >= 2 && d.acomp <= 5);
+  const enPelo = dobles.filter(d => d.acomp === 1);
+
+  if (acompañados.length) {
+    let elegido = acompañados[0];                       // regla 1: el mejor acompañado; a igualdad, el más alto
+    let regla = 1;
+
+    // Regla 4: doble en quinta con otro en segunda -> sale el de segunda.
+    if (elegido.acomp === 5) {
+      const segunda = acompañados.find(d => d.acomp === 2);
+      if (segunda) { apunta(elegido.ficha, `${ACOMP[5]}, se guarda`); elegido = segunda; regla = 4; }
+    }
+    acompañados.forEach(d => { if (d !== elegido) apunta(d.ficha, `doble ${ACOMP[d.acomp]}`); });
+
+    const palo = NOMBRE_PALO[elegido.palo];
+    if (regla === 4)
+      return cierra(elegido.ficha, "CPP",
+        `Tienes un doble en quinta y otro en segunda: sale el de segunda, el ${elegido.ficha}, con pensada.`, "alta");
+
+    if (elegido.acomp >= 3)                              // regla 2
+      return cierra(elegido.ficha, "SPP",
+        `Doble ${ACOMP[elegido.acomp]}: sale el ${elegido.ficha} sin pensada (tienes fuerza en ${palo}).`, "alta");
+
+    return cierra(elegido.ficha, "CPP",                   // regla 3
+      `Doble ${ACOMP[2]}: sale el ${elegido.ficha} con pensada (solo lo acompaña una ficha de ${palo}).`, "alta");
+  }
+
+  // Regla 6: varios dobles en pelo y ninguno acompañado -> el más alto, con pensada.
+  if (enPelo.length >= 2) {
+    const alto = enPelo.reduce((a, b) => (b.palo > a.palo ? b : a));
+    enPelo.forEach(d => { if (d !== alto) apunta(d.ficha, "doble en pelo"); });
+    return cierra(alto.ficha, "CPP",
+      `Solo tienes dobles en pelo (${enPelo.map(d => d.ficha).join(", ")}): sale el más alto, ` +
+      `el ${alto.ficha}, con pensada, para soltarlo pronto.`, "media");
+  }
+
+  /* Regla 7: sin doble con el que salir, ficha mixta que una los dos palos
+     más largos. Un único doble en pelo tampoco sirve de salida —no lo puedes
+     acompañar—, así que la mano cae también aquí.
+     Heurística floja, a afinar: puntúa por fichas que te quedan de cada punta
+     y, a igualdad, evita romper un palo donde tienes fuerza. */
+  const mixtas = mano.filter(t => !esDoble(t));
+  if (!mixtas.length) return cierra(nombreFicha(mano[0]), "CPP", `Solo llevas dobles: sale el ${nombreFicha(mano[0])}.`, "baja");
+
+  const puntuadas = mixtas.map(t => ({
+    t,
+    ficha: nombreFicha(t),
+    apoyo: cuenta[t[0]] + cuenta[t[1]],
+    rompeFuerza: hayFuerza(t[0]) || hayFuerza(t[1]),
+    pips: t[0] + t[1],
+  })).sort((a, b) => b.apoyo - a.apoyo || a.rompeFuerza - b.rompeFuerza || b.pips - a.pips);
+
+  const m = puntuadas[0];
+  puntuadas.slice(1, 3).forEach(x => apunta(x.ficha, `${x.apoyo} fichas de apoyo`));
+  if (enPelo.length === 1) apunta(enPelo[0].ficha, "doble en pelo, mejor no salir con él");
+  return cierra(m.ficha, "CPP",
+    `Sin doble con el que salir: sale el ${m.ficha}, que une tus dos palos más largos ` +
+    `(${NOMBRE_PALO[m.t[0]]} y ${NOMBRE_PALO[m.t[1]]}), para poder seguir por las dos puntas.`, "baja");
+}
+
 // Para poder probarlo con node fuera del navegador.
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { analizarMano, ficha, NOMBRE_PALO, PROB_DOBLES, PROB_FALLAS, FREQ_PALO };
+  module.exports = { analizarMano, asesorSalida, ficha, NOMBRE_PALO, ACOMP, PROB_DOBLES, PROB_FALLAS, FREQ_PALO };
 }

@@ -647,7 +647,22 @@ function textoFallas(f){
   const p=f.prob===null?"menos del 0,01":decimal(f.prob);
   return `Con ${f.n} falla${f.n>1?"s":""} estás en el ${p}% de las manos.`;
 }
-function panelMano(a){
+function bloqueSalida(sal){
+  if(!sal) return "";
+  const t=kt(sal.ficha);
+  const col={alta:"var(--ok)",media:"var(--gold)",baja:"var(--dim)"}[sal.confianza]||"var(--dim)";
+  return `<div class="probpanel" style="border:1px solid var(--gold)">
+    <div class="muted" style="font-size:.72rem;margin-bottom:4px">Salida recomendada</div>
+    <div style="display:flex;align-items:center;gap:8px">
+      ${tileHTML(t[0],t[1],"md")}
+      <div><div style="font-weight:800">${sal.ficha} · ${sal.pensada==="SPP"?"sin pensada":"con pensada"}</div>
+        <div class="muted" style="font-size:.68rem">${sal.pensada}</div></div>
+    </div>
+    <div class="muted" style="font-size:.72rem;margin-top:6px">${sal.motivo}</div>
+    <div style="font-size:.7rem;margin-top:4px">Confianza: <b style="color:${col}">${sal.confianza}</b></div>
+  </div>`;
+}
+function panelMano(a,salida){
   const fila=(izq,der)=>`<div class="row"><span class="muted">${izq}</span><span>${der}</span></div>`;
   const palos=a.porPalo.map(x=>{
     const nombre=`<b>${conMayuscula(x.nombre)}</b>`;
@@ -669,6 +684,7 @@ function panelMano(a){
     <div class="center" style="margin-bottom:4px"><b>🔎 Tu mano (Sur)</b></div>
     ${aviso}
     ${fichasHTML(a.fichas)}
+    ${bloqueSalida(salida)}
     <div class="probpanel">
       ${fila("Puntos",`<b>${a.puntos}</b> · mano <b>${a.categoria}</b>`)}
       <div class="muted" style="font-size:.68rem">Baja ≤32 · Media 33–49 · Alta ≥50</div>
@@ -690,7 +706,9 @@ $("#tbMano").onclick=()=>{
   if(!GS&&!dealCompleto()){toast("Primero reparte");return;}
   const mias=GS?[...GS.hands[0]]:Object.keys(owner).filter(k=>owner[k]===0);
   const jugadas=GS?GS.sequence:[];
-  dpanel(panelMano(analizarMano(mias,jugadas)));
+  // El consejo de salida solo tiene sentido con la mesa vacía y saliendo tú.
+  const saleSur=GS?(GS.ends===null&&GS.current===0):(simStarter===0);
+  dpanel(panelMano(analizarMano(mias,jugadas),saleSur?asesorSalida(mias):null));
 };
 
 /* ---- simulación masiva ----
