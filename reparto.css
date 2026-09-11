@@ -1,0 +1,51 @@
+/* ===== Reparto sobre la mesa ===== */
+
+/* El navegador móvil interpreta un arrastre hacia abajo como scroll y se
+   lleva el gesto. touch-action:none se lo impide dentro de la mesa. */
+#simGame.repartiendo .felt,
+#simGame.repartiendo .dcenter,
+#simGame.repartiendo .band { touch-action: none; }
+
+.dealtitulo {
+  color: #eaf6ea; font-size: .82rem; font-weight: 800;
+  letter-spacing: .5px; text-align: center;
+}
+.dealpie {
+  color: #bcd8bc; font-size: .68rem; text-align: center; opacity: .8;
+}
+
+.dealgrid {
+  display: flex; flex-wrap: wrap; gap: 5px;
+  justify-content: center; align-content: flex-start;
+  max-width: 560px; margin: 0 auto; padding: 2px;
+}
+.dealtile { user-select: none; -webkit-user-select: none; }
+.dealtile .domino { transition: transform .08s, box-shadow .08s; }
+.dealtile.sel .domino {
+  outline: 3px solid var(--gold);
+  box-shadow: 0 0 12px rgba(255, 209, 102, .7);
+  transform: translateY(-3px);
+}
+
+/* Zonas de soltar: generosas, porque con el pulgar no se apunta al píxel */
+#simGame.repartiendo .band.zona {
+  min-height: 74px;
+  border: 2px dashed rgba(255, 255, 255, .22);
+  border-radius: 12px; margin: 4px;
+  transition: background .12s, border-color .12s;
+}
+#simGame.repartiendo .band.zona.encima {
+  background: rgba(255, 209, 102, .18);
+  border-color: var(--gold);
+}
+#simGame.repartiendo .band.zona.llena {
+  border-style: solid;
+  border-color: rgba(61, 220, 132, .55);
+}
+
+/* La ficha que va en la mano, por encima del dedo */
+.dealghost {
+  position: fixed; top: 0; left: 0; z-index: 9999;
+  pointer-events: none;
+  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, .55));
+}

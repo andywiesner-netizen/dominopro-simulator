@@ -13,31 +13,16 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Dominó">
 <link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="reparto.css">
 </head>
 <body>
 <div class="wrap">
   <h1>🁫 Dominó por Parejas</h1>
   <div class="sub">Doble-6 · asistente en vivo + simulador</div>
 
-  <!-- ================= HOME ================= -->
-  <div id="home">
-    <div class="menu">
-      <button class="btn menu big" id="goLive">
-        <span class="em">🎯</span>
-        <span><span class="t">Asistente en vivo</span><br>
-        <span class="d">Solo conoces TU mano. Registras la partida real y deduce/estima el resto.</span></span>
-      </button>
-      <button class="btn menu big" id="goSim">
-        <span class="em">🧪</span>
-        <span><span class="t">Simulador / mesa completa</span><br>
-        <span class="d">Creas las 4 manos (al azar o a mano). Juega tú, deja jugar a la IA o corre miles de simulaciones.</span></span>
-      </button>
-    </div>
-  </div>
-
   <!-- ================= LIVE SETUP ================= -->
   <div id="liveSetup" class="hidden">
-    <div class="topbar"><button class="backbtn" data-home>← Menú</button></div>
+    <div class="topbar"><button class="backbtn" data-mesa>← Mesa</button></div>
     <div class="card">
       <h2>1 · Tus 7 fichas</h2>
       <div class="muted center" style="margin-bottom:8px">Toca tus fichas (<span id="selCount">0</span>/7)</div>
@@ -58,7 +43,7 @@
 
   <!-- ================= LIVE GAME ================= -->
   <div id="liveGame" class="hidden">
-    <div class="topbar"><button class="backbtn" data-home>← Menú</button></div>
+    <div class="topbar"><button class="backbtn" data-mesa>← Mesa</button></div>
     <div class="card">
       <div class="turnbar">
         <div id="whoTurn" class="who"></div>
@@ -73,18 +58,18 @@
     <div class="card hidden" id="analysisCard">
       <h2>Análisis</h2><div id="probTable"></div><div id="sugView"></div>
     </div>
-    <div class="btnrow grow"><button class="btn ghost" data-home>↺ Salir al menú</button></div>
+    <div class="btnrow grow"><button class="btn ghost" data-mesa>↺ Salir a la mesa</button></div>
   </div>
 
   <!-- ================= LIVE RESULT ================= -->
   <div id="liveResult" class="hidden">
     <div class="card"><h2>Fin de la ronda</h2><div class="result" id="resultView"></div></div>
-    <div class="btnrow grow"><button class="btn gold" data-home>↺ Menú</button></div>
+    <div class="btnrow grow"><button class="btn gold" data-mesa>↺ Mesa</button></div>
   </div>
 
   <!-- ================= SIM DEAL ================= -->
   <div id="simDeal" class="hidden">
-    <div class="topbar"><button class="backbtn" data-home>← Menú</button></div>
+    <div class="topbar"><button class="backbtn" data-mesa>← Mesa</button></div>
     <div class="card">
       <h2>Crear las 4 manos</h2>
       <div class="btnrow grow" style="margin-bottom:8px">
@@ -175,7 +160,7 @@
     </div>
     <div class="btnrow grow" style="margin-top:8px">
       <button class="btn ghost" data-simdeal>↺ Otra mano</button>
-      <button class="btn ghost" data-home>Menú</button>
+      <button class="btn ghost" data-mesa>Mesa</button>
     </div>
   </div>
 
@@ -202,5 +187,6 @@
 
 <script src="engine.js"></script>
 <script src="ui.js"></script>
+<script src="reparto.js"></script>
 </body>
 </html>

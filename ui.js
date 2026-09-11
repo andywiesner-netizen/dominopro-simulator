@@ -9,12 +9,12 @@ function tileHTML(a,b,cls=""){return `<span class="domino ${cls}">${halfHTML(a)}
 function tileK(k,cls=""){const t=kt(k);return tileHTML(t[0],t[1],cls+(t[0]===t[1]?" vert":""));}
 
 const $=s=>document.querySelector(s);
-const SCREENS=['home','liveSetup','liveGame','liveResult','simDeal','simGame','simResult','simBulk'];
+const SCREENS=['liveSetup','liveGame','liveResult','simDeal','simGame','simResult','simBulk'];
 function show(id){SCREENS.forEach(s=>document.getElementById(s).classList.toggle('hidden',s!==id));window.scrollTo(0,0);}
-document.querySelectorAll('[data-home]').forEach(b=>b.onclick=()=>show('home'));
+// la mesa es la pantalla de entrada y de salida: volver = mesa vacía (idle)
+function goTable(){GS=null;simIdle();show('simGame');}
+document.querySelectorAll('[data-mesa]').forEach(b=>b.onclick=goTable);
 document.querySelectorAll('[data-simdeal]').forEach(b=>b.onclick=()=>{simDealInit();show('simDeal');});
-$("#goLive").onclick=()=>{liveRestart();show('liveSetup');};
-$("#goSim").onclick=()=>{simDealInit();show('simDeal');};
 $("#tbLive").onclick=()=>{liveRestart();show('liveSetup');};
 
 let toastT=null;
@@ -259,36 +259,67 @@ function boardCenterHTML(cur){
   if(GS.ends===null)return banner+`<div class="muted center">Mesa vacía — sale ${ROLE[cur]}</div>`;
   return banner+`<div class="board" id="boardChain"></div>`;
 }
-// Dibuja la cadena serpenteando y girando en las esquinas (tipo mesa real).
-// Filas alternas izq→der / der→izq; en las filas invertidas se voltea la ficha
-// para que los números sigan casando, y los dobles van cruzados (verticales).
+// Dibuja la cadena como un tren de dominó real: fichas tendidas y conectadas
+// extremo con extremo, los dobles cruzados (perpendiculares a la línea) y la
+// línea serpenteando en filas alternas para caber en el ancho disponible.
+// Geometría de .domino.sm (ver styles.css): 58x34 acostada, 34x58 cruzada.
+// Las fichas solapan 1px por lado para que los bordes se toquen sin doblarse.
+const BT_LONG=58, BT_SHORT=34, BT_OVERLAP=2;
 function fillBoardChain(){
   const box=document.getElementById("boardChain");
   if(!box) return;
-  const line=orientedLine(GS.sequence);
-  if(!line.length){ box.innerHTML=""; return; }
-  const tileW=50;
-  const avail=box.clientWidth||240;
-  const K=Math.max(3,Math.floor((avail-8)/tileW));
-  box.style.gridTemplateColumns=`repeat(${K}, ${tileW}px)`;
   box.innerHTML="";
-  line.forEach((o,i)=>{
-    const row=Math.floor(i/K), pos=i%K;
-    const col=(row%2===0)?pos:(K-1-pos);   // serpenteo
-    const flip=(row%2===1);                // filas der→izq: voltea la ficha
-    const a=flip?o.b:o.a, b=flip?o.a:o.b;
-    const jp=(key(o.a,o.b)===GS.lastKey)?" justplayed":"";
-    const cls=o.dbl?("sm vert"+jp):("sm"+jp);
-    const cell=document.createElement("div");
-    cell.className="bcell";
-    cell.style.gridColumn=(col+1); cell.style.gridRow=(row+1);
-    cell.innerHTML=tileHTML(a,b,cls);
-    box.appendChild(cell);
+  const line=orientedLine(GS.sequence);
+  if(!line.length) return;
+  const ancho=box.clientWidth||(box.parentElement&&box.parentElement.clientWidth)||320;
+  const avail=Math.max(BT_LONG+BT_SHORT, ancho-10);
+
+  // 1) Tiende la línea con un cursor que gira al llegar al borde. Cada ficha
+  //    avanza lo que ocupa de verdad: 56px acostada, 32px el doble cruzado.
+  //    'ini' es el borde por donde arranca la fila (izquierdo si va →,
+  //    derecho si va ←), y es siempre donde terminó la fila anterior: así el
+  //    tren gira en la esquina en vez de cortarse y saltar de sitio.
+  const rows=[{dir:1,ini:0,span:0,tiles:[]}];
+  line.forEach(o=>{
+    let r=rows[rows.length-1];
+    const w=(o.dbl?BT_SHORT:BT_LONG)-BT_OVERLAP;
+    const cupo=(r.dir===1)?(avail-r.ini):r.ini;
+    if(r.tiles.length && r.span+w+BT_OVERLAP>cupo){
+      // el giro cae en el canto exterior de la fila que se cierra
+      const fin=(r.dir===1)?(r.ini+r.span+BT_OVERLAP):(r.ini-r.span-BT_OVERLAP);
+      r={dir:-r.dir,ini:fin,span:0,tiles:[]};
+      rows.push(r);
+    }
+    r.tiles.push(o); r.span+=w;
   });
-  // desplaza para ver la última ficha si hay muchas filas
+
+  // 2) La fila que va der→izq se dibuja con row-reverse y la ficha volteada,
+  //    para que los números sigan casando extremo con extremo al leerla.
+  rows.forEach(r=>{
+    const rtl=(r.dir===-1);
+    const span=r.span+BT_OVERLAP;
+    const izq=rtl?(r.ini-span):r.ini;
+    const el=document.createElement("div");
+    el.className="brow"+(rtl?" rtl":"");
+    el.style.width=span+"px";
+    el.style.marginLeft=(rows.length===1?(avail-span)/2:Math.max(0,izq))+"px";
+    r.tiles.forEach(o=>{
+      const a=rtl?o.b:o.a, b=rtl?o.a:o.b;
+      const jp=(key(o.a,o.b)===GS.lastKey)?" justplayed":"";
+      el.insertAdjacentHTML("beforeend",tileHTML(a,b,"sm"+(o.dbl?" vert":"")+jp));
+    });
+    box.appendChild(el);
+  });
+
+  // deja a la vista la última jugada si la cadena ya no cabe de una
   const jp=box.querySelector(".justplayed");
   if(jp) jp.scrollIntoView({block:"nearest",inline:"nearest"});
 }
+// al rotar o redimensionar cambia el ancho: hay que recalcular el serpenteo
+window.addEventListener("resize",()=>{
+  const g=document.getElementById("simGame");
+  if(GS&&!GS.over&&g&&!g.classList.contains("hidden")) fillBoardChain();
+});
 // posición de cada asiento en la mesa (según el giro): seat en la posición 'pos' = (pos+viewAnchor)%4
 function seatAtPos(pos){return (pos+viewAnchor)%4;}
 function renderBand(id,pos,ctx){

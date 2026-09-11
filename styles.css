@@ -62,12 +62,6 @@
   .btnrow{display:flex; gap:8px; flex-wrap:wrap;}
   .btnrow.grow > button{flex:1;}
 
-  .menu{display:flex; flex-direction:column; gap:12px;}
-  .menu .big{padding:18px; text-align:left; display:flex; gap:14px; align-items:center;}
-  .menu .big .em{font-size:1.8rem;}
-  .menu .big .t{font-size:1.05rem; font-weight:800;}
-  .menu .big .d{font-size:.8rem; color:#33452f; font-weight:500;}
-
   .seatpick{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:6px;}
   .seatpick button.sel{background:var(--gold); color:#3a2c00;}
 
@@ -156,6 +150,21 @@
   .boardcenter .endbox{min-width:40px; padding:6px 4px;}
   .boardcenter .endbox .val{font-size:1.3rem;}
   .chainwrap{display:flex; flex-wrap:wrap; gap:2px; justify-content:center; max-height:150px; overflow:auto; padding:2px;}
+  /* ===== cadena del centro: tren de dominó tendido y serpenteado =====
+     Una fila por tramo; las filas impares van der→izq (row-reverse), así el
+     tren gira en la esquina y sigue. Las fichas se solapan 1px por lado para
+     que los bordes se toquen como en una mesa real. */
+  .board{display:flex; flex-direction:column; align-items:flex-start; gap:3px;
+         width:100%; max-height:min(46vh,260px); overflow:auto;
+         padding:4px 5px; scroll-behavior:smooth;}
+  .board::-webkit-scrollbar{width:5px; height:5px;}
+  .board::-webkit-scrollbar-thumb{background:rgba(255,255,255,.25); border-radius:3px;}
+  .brow{display:flex; align-items:center; justify-content:flex-start;
+        flex-wrap:nowrap; flex:0 0 auto; min-height:34px;}
+  .brow.rtl{flex-direction:row-reverse;}   /* se lee der→izq: gira la esquina */
+  .brow .domino{flex:0 0 auto; margin:0 -1px; border-radius:4px;
+                box-shadow:0 1px 3px rgba(0,0,0,.35);}
+  .brow .domino.vert{margin:0 -1px; align-self:center;}  /* doble cruzado */
   /* cadena conectada estilo mesa real: fichas que se tocan extremo con extremo */
   .snake{display:flex; align-items:center; gap:0; overflow-x:auto; max-width:100%; padding:8px 2px; scroll-behavior:smooth;}
   .snake::-webkit-scrollbar{height:5px;} .snake::-webkit-scrollbar-thumb{background:rgba(255,255,255,.25); border-radius:3px;}
