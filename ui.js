@@ -722,10 +722,18 @@ function estadoParaSugerir(){
   const hist=GS.hist||[];
   let mesa; try{ mesa=reconstruirMesa(hist); }catch(e){ return null; }
   const primera=hist.find(h=>!h.paso);
+  // La pensada de la salida solo se sabe de verdad si saliste TÚ: de la mano
+  // ajena no puedes deducir el acompañamiento. Si no, va null (peso normal).
+  let pensada=null;
+  if(primera&&primera.jugador===0){
+    const mano0=Object.keys(owner).filter(k=>owner[k]===0);
+    const sal=asesorSalida(mano0);
+    if(sal&&sal.ficha===primera.ficha) pensada=sal.pensada;
+  }
   return {
     yo:GS.current, miMano:[...GS.hands[GS.current]], ends:GS.ends,
-    secuencia:mesa.secuencia, pases:mesa.pases,
-    salidor:simStarter, salida:primera?primera.ficha:null,
+    secuencia:mesa.secuencia, pases:mesa.pases, salidor:simStarter,
+    salida:primera?{ficha:primera.ficha,jugador:primera.jugador,pensada:pensada}:null,
     pasesSeguidos:GS.passes,
   };
 }

@@ -278,6 +278,7 @@ function asesorSalida(misFichas) {
 
    Pesos iniciales, a afinar. Positivos animan, negativos frenan. */
 const PESOS_SUGERENCIA = {
+  repetirSalidaFuerte:    20,   // P2+ repite la salida SPP del compañero (ahi tiene fuerza)
   repetirCompanero:       10,   // P2  toca un palo que abrió el compañero
   castigarContrario:      10,   // P3  castiga un palo que generó un contrario
   facilitarCompanero:      9,   // P9  genera un palo que el compañero tiene
@@ -285,14 +286,15 @@ const PESOS_SUGERENCIA = {
   generarFallaContrario:  11,   // P10 genera un palo donde un contrario pasó
   generarPaloContrario:   -8,   // P10 genera un palo que abrió un contrario
   cuadrarBien:             7,   // P10 cuadra a un número que dominas o que fallan
-  quedaRespuesta:          8,   // te queda al menos una punta contestable
+  quedaRespuesta:          6,   // te queda al menos una punta contestable
   sinRespuesta:          -14,   // te quedas sin salida por las dos puntas
   encimaSalidaContrario:   5,   // P5/P6 por encima de la salida del contrario
   debajoSalidaCompanero:   5,   // P7/P8 por debajo de la salida del compañero
   generarFuerzaPropia:     6,   // P4  abre un palo donde tienes fuerza
-  gastarUltimaDelPalo:    -6,   // gastas tu única respuesta a ese número
+  irseDeLaFalla:          26,   // sueltas la huerfana pudiendo soltar una con apoyo
+  gastarLlave:           -12,   // gastas tu unica ficha de un numero abierto teniendo otra jugada
   dobleSolo:              -4,   // te quedas con un doble sin acompañamiento
-  seguroAmbasPuntas:       6,   // respuesta garantizada por las dos puntas
+  seguroAmbasPuntas:      12,   // respuesta garantizada por las dos puntas
   puntosPorPip:         0.45,   // descargar peso cuando la mano se cierra
 };
 
@@ -364,16 +366,26 @@ function sugerirJugada(estado) {
   });
   pases.forEach(p => (p.ends || []).forEach(e => fallaDe[p.jugador].add(e)));
 
-  const nums = ficha(estado.salida);
+  // La salida admite {ficha, jugador, pensada:"CPP"|"SPP"} o solo la ficha.
+  const sal = (estado.salida && typeof estado.salida === "object") ? estado.salida
+            : { ficha: estado.salida, jugador: estado.salidor, pensada: null };
+  const nums = ficha(sal.ficha);
   const refSalida = nums ? Math.max(nums[0], nums[1]) : null;
-  const salidorContrario = contrarios.includes(estado.salidor);
-  const salidorCompanero = estado.salidor === companero;
+  const salidorSeat = sal.jugador !== undefined && sal.jugador !== null ? sal.jugador : estado.salidor;
+  const salidorContrario = contrarios.includes(salidorSeat);
+  const salidorCompanero = salidorSeat === companero;
+  // Salir SPP indica fuerza en ese palo; salir CPP a un doble no indica nada.
+  const paloSalidaFuerte = (salidorCompanero && sal.pensada === "SPP" && nums) ? nums : null;
 
   const analisis = analizarMano(estado.miMano, secuencia.map(s => s.ficha));
   const tengoFuerza = n => analisis.porPalo[n].fuerza;
   const misDelPalo = n => mano.filter(t => t[0] === n || t[1] === n).length;
 
   // --- jugadas legales (ficha + punta), sin duplicar las equivalentes ---
+  // Llave = mi unica ficha de un numero que esta abierto en la mesa. Gastarla
+  // deja el numero libre para que me cuadren a el.
+  const esLlave = t => ends.some(n => (t[0] === n || t[1] === n) && misDelPalo(n) === 1);
+
   const legales = [];
   mano.forEach(t => {
     [0, 1].forEach(i => {
@@ -399,18 +411,26 @@ function sugerirJugada(estado) {
     resto.splice(resto.findIndex(t => nombreFicha(t) === m.ficha), 1);
     const puedo = n => resto.some(t => t[0] === n || t[1] === n);
 
-    // P2 - repetir lo que abrio el compañero
+    const llave = esLlave(m.t);
+
+    // P2 - repetir lo que abrio el compañero. Si salio SPP, ahi tiene fuerza
+    // de verdad y pesa mas que un palo que solo genero de paso.
+    const nSal = paloSalidaFuerte && (paloSalidaFuerte.includes(m.genera) ? m.genera
+               : paloSalidaFuerte.includes(m.castiga) ? m.castiga : null);
     const repiteGen = generoPor[companero].has(m.genera);
     const repiteCas = generoPor[companero].has(m.castiga);
-    const repiteSal = salidorCompanero && nums && (nums.includes(m.genera) || nums.includes(m.castiga));
-    if (repiteGen || repiteCas || repiteSal)
-      suma(P.repetirCompanero,
-        "repite el " + NOMBRE_PALO[repiteGen ? m.genera : (repiteCas ? m.castiga : (nums.includes(m.genera) ? m.genera : m.castiga))] +
-        " que abrio tu compañero", "P2");
+    if (nSal !== null && nSal !== undefined)
+      suma(P.repetirSalidaFuerte, "repite el " + NOMBRE_PALO[nSal] + ", la salida sin pensada de tu compañero", "P2+");
+    else if (repiteGen || repiteCas)
+      suma(P.repetirCompanero, "repite el " + NOMBRE_PALO[repiteGen ? m.genera : m.castiga] + " que abrio tu compañero", "P2");
 
-    // P3 - castigar lo que abrio el contrario
-    if (contrarios.some(c => generoPor[c].has(m.castiga)))
-      suma(P.castigarContrario, "castiga el " + NOMBRE_PALO[m.castiga] + ", que abrio un contrario", "P3");
+    // P3 - castigar lo que abrio el contrario. Dejar correr: si esa ficha es mi
+    // llave, no la gasto por castigar; me guardo para cuando lo vuelva a mandar.
+    if (contrarios.some(c => generoPor[c].has(m.castiga))) {
+      if (llave) razones.push({ peso: 0, principio: "dejar correr",
+        texto: "podria castigar el " + NOMBRE_PALO[m.castiga] + ", pero esa es tu unica ficha del palo: mejor dejarlo correr" });
+      else suma(P.castigarContrario, "castiga el " + NOMBRE_PALO[m.castiga] + ", que abrio un contrario", "P3");
+    }
 
     // P9 - facilidades al compañero
     if (tocoPor[companero].has(m.genera))
@@ -445,12 +465,20 @@ function sugerirJugada(estado) {
     else if (rI || rD) suma(P.quedaRespuesta, "te deja respuesta por una punta", "falla");
     else suma(P.sinRespuesta, "te quedas sin respuesta por ninguna punta", "falla");
 
-    // proteccion
-    // gastar la ultima ficha de un palo que sigue abierto por alguna punta
-    [m.castiga, m.genera].forEach(n => {
-      if (misDelPalo(n) === 1 && m.nuevas.includes(n) && !puedo(n))
-        suma(P.gastarUltimaDelPalo, "gasta tu unica ficha de " + NOMBRE_PALO[n] + ", que sigue abierto", "proteccion");
-    });
+    // C - guardar la llave: mi unica ficha de un numero abierto, teniendo otra jugada
+    if (llave && legales.length > 1)
+      suma(P.gastarLlave, "gasta tu llave del " + NOMBRE_PALO[ends.find(n => (m.t[0] === n || m.t[1] === n) && misDelPalo(n) === 1)] +
+        ", la unica que te queda de ese numero", "llave");
+
+    // B - irse de la falla: soltar la huerfana pudiendo soltar una con apoyo por
+    // el mismo numero. Solo cuenta con la mano cerrandose: es lo que evita
+    // quedarse con ella de mingo al final.
+    if (mano.length <= 3 && !puedo(m.genera)) {
+      const hermanas = legales.filter(o => o.castiga === m.castiga && o.ficha !== m.ficha);
+      if (hermanas.some(o => resto.some(t => t[0] === o.genera || t[1] === o.genera)))
+        suma(P.irseDeLaFalla, "se va de la falla: suelta el " + NOMBRE_PALO[m.genera] +
+          ", del que no tienes mas, y conserva el palo con apoyo", "falla");
+    }
     if (resto.some(t => t[0] === t[1] && !resto.some(x => x !== t && (x[0] === t[0] || x[1] === t[0]))))
       suma(P.dobleSolo, "te deja un doble sin acompañamiento", "proteccion");
 
@@ -473,7 +501,8 @@ function sugerirJugada(estado) {
     const suyas = new Set(segunda.razones.filter(r => r.peso > 0).map(r => r.principio));
     const gana = mejor.razones.filter(r => r.peso > 0 && !suyas.has(r.principio));
     const pierde = segunda.razones.filter(r => r.peso < 0);
-    porQueNo = "El " + segunda.ficha + " queda cerca (" + segunda.puntos + " frente a " + mejor.puntos + ")" +
+    porQueNo = "El " + segunda.ficha + " por la punta " +
+      (segunda.punta === "I" ? "izquierda" : "derecha") + " queda cerca (" + segunda.puntos + " frente a " + mejor.puntos + ")" +
       (gana.length ? ", pero no " + gana[0].texto : "") +
       (pierde.length ? " y " + pierde[0].texto : "") + ".";
   }
