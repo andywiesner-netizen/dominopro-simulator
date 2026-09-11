@@ -219,12 +219,87 @@
   #dcenter.dropD{background:linear-gradient(270deg, rgba(255,209,102,.26), rgba(255,209,102,.05) 50%, transparent 50%);}
 
   .ovcard{background:#12331a; border:1px solid var(--gold); border-radius:14px; padding:14px; box-shadow:0 12px 34px #000b; color:var(--ivory);}
-  /* aviso "gira el teléfono": solo en táctil, vertical y pantalla estrecha */
-  #rotateHint{display:none;}
-  #rotateHint .sub{color:var(--dim); font-size:.9rem; margin-top:6px;}
-  @media (max-width:920px) and (orientation:portrait) and (hover:none){
-    #simGame:not(.hidden) #rotateHint{display:flex; position:fixed; inset:0; z-index:200;
-      flex-direction:column; align-items:center; justify-content:center; gap:10px; text-align:center;
-      background:#0a170a; color:#ffd166; padding:26px;}
-    #simGame:not(.hidden) .dtable{visibility:hidden;}
+  /* El aviso "gira el teléfono" ya no se usa: en vertical hay layout propio.
+     El nodo sigue en el HTML pero no se muestra nunca. */
+  #rotateHint{display:none !important;}
+
+  /* ===================== MESA EN VERTICAL (móvil) =====================
+     Solo entra en pantallas altas y estrechas; el horizontal no se toca.
+     La mesa es la MISMA que en horizontal (Norte arriba, Oeste | tablero |
+     Este, Sur abajo): aquí solo se encogen las fichas para que todo quepa en
+     el ancho de un teléfono. El serpenteo de la cadena se adapta solo:
+     fillBoardChain() mide la ficha real y está enganchado al resize.
+     Geometría (padding p, mitad h): acostada (2h+2+2p+2) x (h+2p+2). */
+  @media (orientation:portrait) and (max-width:820px){
+
+    /* --- rivales (Norte, Este, Oeste): fichas chicas, boca abajo o no --- */
+    #simGame .band.norte, #simGame .band.este, #simGame .band.oeste{padding:4px 3px; gap:2px;}
+    /* Hueco generoso: en paso a paso se toca la ficha del asiento con el
+       turno esté donde esté, y con 24px de canto un hueco de 3-4px deja el
+       dedo a caballo entre dos fichas. Sobra sitio: 7 de pie en Norte son
+       7·24+6·10 = 228px de 358; 7 acostadas en un lateral, 216px de ~450. */
+    #simGame .band.norte .hand{gap:10px;}
+    #simGame .band.este .handv, #simGame .band.oeste .handv{gap:8px;}
+    #simGame .band.norte .domino.back,
+    #simGame .band.este  .domino.back,
+    #simGame .band.oeste .domino.back{width:30px; height:19px;}
+    #simGame .band.norte .domino.back.vert,
+    #simGame .band.este  .domino.back.vert,
+    #simGame .band.oeste .domino.back.vert{width:19px; height:30px;}
+    /* destapadas (su turno o "Ver todas"): 42x24 acostada, 24x42 de pie */
+    #simGame .band.norte .domino.md,
+    #simGame .band.este  .domino.md,
+    #simGame .band.oeste .domino.md{padding:3px; border-radius:6px;}
+    #simGame .band.norte .domino.md .half,
+    #simGame .band.este  .domino.md .half,
+    #simGame .band.oeste .domino.md .half{width:16px; height:16px; padding:2px;}
+    #simGame .band.norte .domino.md .pip,
+    #simGame .band.este  .domino.md .pip,
+    #simGame .band.oeste .domino.md .pip{width:3px; height:3px;}
+    #simGame .band.norte .domino.md .divider,
+    #simGame .band.este  .domino.md .divider,
+    #simGame .band.oeste .domino.md .divider{height:16px;}
+    #simGame .band.norte .domino.md.vert .divider,
+    #simGame .band.este  .domino.md.vert .divider,
+    #simGame .band.oeste .domino.md.vert .divider{width:16px; height:2px;}
+    #simGame .band.norte .star,
+    #simGame .band.este  .star,
+    #simGame .band.oeste .star{font-size:.75rem; top:-7px; left:-5px;}
+    /* La etiqueta lateral ("RI · Oeste · 7·31p") es más ancha que la columna
+       de fichas: en horizontal es ella la que fija el ancho de la columna
+       (~110px), y dos columnas así no dejan tablero. Aquí se parte en líneas. */
+    #simGame .band.este .lbl, #simGame .band.oeste .lbl{
+      white-space:normal; max-width:52px; text-align:center;
+      line-height:1.15; letter-spacing:.3px; font-size:.6rem;
+    }
+    #simGame .band.norte .lbl{font-size:.6rem; letter-spacing:.5px;}
+
+    /* --- tablero: fichas de la cadena a 40x23 (dobles 23x40). Las mismas
+           medidas valen para las fichas del reparto (montón y bandas), que
+           reparto.js pinta con la clase .sm fuera de .board: sin esto, en
+           vertical el montón iba a 3 por fila y desbordaba un contenedor que
+           lleva touch-action:none (no se puede desplazar con el dedo). --- */
+    /* .dcenter es contenedor con scroll y viene centrado: si algo desborda
+       (teléfono más angosto, reparto con el montón lleno), 'center' parte el
+       exceso por los dos lados y la mitad de arriba queda fuera del rango
+       desplazable. 'safe' hace que al desbordar se alinee al principio. */
+    #simGame .dcenter{padding:4px; gap:6px; justify-content:safe center;}
+    #simGame .dcenter .banner{font-size:.72rem; padding:3px 8px;}
+    /* que la cadena pueda usar todo el alto que haya; si aun así no cabe, rueda */
+    #simGame .dcenter .board{max-height:none; flex:0 1 auto; min-height:0;}
+    #simGame .brow{min-height:23px;}
+    #simGame .board .domino.sm,               #simGame .dealtile .domino.sm{padding:3px; border-radius:5px;}
+    #simGame .board .domino.sm .half,         #simGame .dealtile .domino.sm .half{width:15px; height:15px; padding:2px;}
+    #simGame .board .domino.sm .pip,          #simGame .dealtile .domino.sm .pip{width:3px; height:3px;}
+    #simGame .board .domino.sm .divider,      #simGame .dealtile .domino.sm .divider{height:15px;}
+    #simGame .board .domino.sm.vert .divider, #simGame .dealtile .domino.sm.vert .divider{width:15px; height:2px;}
+
+    /* --- tu mano (Sur): más chica que en horizontal (39x64), 34x58, que
+           sigue siendo cómoda para tocar y arrastrar --- */
+    #simGame .band.sur{padding:5px 4px 4px;}
+    #simGame .band.sur .domino.md .half{width:22px; height:22px;}
+    #simGame .band.sur .domino.md .pip{width:4px; height:4px;}
+    #simGame .band.sur .domino.md .divider{height:20px;}
+    #simGame .band.sur .domino.md.vert .divider{width:20px; height:2px;}
+    #simGame .band.sur .lbl{font-size:.62rem;}
   }

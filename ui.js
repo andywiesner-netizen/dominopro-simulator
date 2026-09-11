@@ -262,27 +262,41 @@ function boardCenterHTML(cur){
 // Dibuja la cadena como un tren de dominó real: fichas tendidas y conectadas
 // extremo con extremo, los dobles cruzados (perpendiculares a la línea) y la
 // línea serpenteando en filas alternas para caber en el ancho disponible.
-// Geometría de .domino.sm (ver styles.css): 58x34 acostada, 34x58 cruzada.
-// Las fichas solapan 1px por lado para que los bordes se toquen sin doblarse.
+// La geometría de la ficha (.domino.sm) se MIDE en el propio tablero en cada
+// pintado, para que valga con cualquier tamaño que dicte el CSS (la mesa en
+// vertical usa fichas más chicas). Los valores fijos son solo el respaldo si
+// no se puede medir (caja oculta). Las fichas solapan 1px por lado para que
+// los bordes se toquen sin doblarse; eso no depende del tamaño.
 const BT_LONG=58, BT_SHORT=34, BT_OVERLAP=2;
+function boardTileGeom(box){
+  const probe=document.createElement("span");
+  probe.style.cssText="position:absolute;visibility:hidden;pointer-events:none";
+  probe.innerHTML=tileHTML(1,2,"sm");        // acostada: ancho=larga, alto=corta
+  box.appendChild(probe);
+  const r=probe.firstElementChild.getBoundingClientRect();
+  probe.remove();
+  return {long:Math.round(r.width)||BT_LONG, short:Math.round(r.height)||BT_SHORT};
+}
 function fillBoardChain(){
   const box=document.getElementById("boardChain");
   if(!box) return;
   box.innerHTML="";
   const line=orientedLine(GS.sequence);
   if(!line.length) return;
+  const {long:L,short:S}=boardTileGeom(box);
   const ancho=box.clientWidth||(box.parentElement&&box.parentElement.clientWidth)||320;
-  const avail=Math.max(BT_LONG+BT_SHORT, ancho-10);
+  const avail=Math.max(L+S, ancho-10);
 
   // 1) Tiende la línea con un cursor que gira al llegar al borde. Cada ficha
-  //    avanza lo que ocupa de verdad: 56px acostada, 32px el doble cruzado.
+  //    avanza lo que ocupa de verdad: la larga menos el solape acostada, la
+  //    corta menos el solape el doble cruzado.
   //    'ini' es el borde por donde arranca la fila (izquierdo si va →,
   //    derecho si va ←), y es siempre donde terminó la fila anterior: así el
   //    tren gira en la esquina en vez de cortarse y saltar de sitio.
   const rows=[{dir:1,ini:0,span:0,tiles:[]}];
   line.forEach(o=>{
     let r=rows[rows.length-1];
-    const w=(o.dbl?BT_SHORT:BT_LONG)-BT_OVERLAP;
+    const w=(o.dbl?S:L)-BT_OVERLAP;
     const cupo=(r.dir===1)?(avail-r.ini):r.ini;
     if(r.tiles.length && r.span+w+BT_OVERLAP>cupo){
       // el giro cae en el canto exterior de la fila que se cierra
