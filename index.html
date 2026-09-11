@@ -130,6 +130,8 @@
         <button class="tb b-sug" id="aiOne">🤖 IA turno</button>
         <button class="tb b-sim" id="aiAll">⏭️ IA final</button>
         <button class="tb b-man" id="winProb">🎲 Prob</button>
+        <button class="tb b-man" id="tbMano">🔎 Mano</button>
+        <button class="tb b-sim" id="tbBulk">🧮 Simular</button>
         <button class="tb b-guar" id="savePos">💾 Guardar</button>
         <button class="tb b-car" id="openSaves">📂 Cargar</button>
         <button class="tb b-copiar" id="tbVer">👁 Ver todas</button>
@@ -166,15 +168,18 @@
 
   <!-- ================= SIM BULK ================= -->
   <div id="simBulk" class="hidden">
-    <div class="topbar"><button class="backbtn" data-simdeal>← Reparto</button></div>
+    <div class="topbar"><button class="backbtn" id="bulkBack">← Mesa</button></div>
     <div class="card">
       <h2>Simulación masiva</h2>
+      <div id="bulkCtx" class="muted center" style="margin-bottom:6px"></div>
       <label class="fld">Número de rondas: <b id="bulkNlab">2000</b></label>
       <input type="range" id="bulkN" min="200" max="20000" step="200" value="2000">
-      <label class="fld">¿Quién sale en cada ronda?</label>
-      <div class="btnrow grow">
-        <button class="btn gold sel" id="startD6" data-mode="d6">Quien tiene el 6|6</button>
-        <button class="btn ghost" id="startRnd" data-mode="rnd">Al azar</button>
+      <div id="bulkStartRow">
+        <label class="fld">¿Quién sale en cada ronda?</label>
+        <div class="btnrow grow">
+          <button class="btn gold sel" id="startD6" data-mode="d6">Quien tiene el 6|6</button>
+          <button class="btn ghost" id="startRnd" data-mode="rnd">Al azar</button>
+        </div>
       </div>
       <div class="btnrow grow" style="margin-top:12px"><button class="btn blue" id="runBulk">▶ Simular</button></div>
       <div id="bulkOut"></div>
@@ -186,6 +191,7 @@
 <div class="toast" id="toast"></div>
 
 <script src="engine.js"></script>
+<script src="conocimiento.js"></script>
 <script src="ui.js"></script>
 <script src="reparto.js"></script>
 </body>

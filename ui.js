@@ -219,7 +219,7 @@ $("#dealFill").onclick=()=>{
 };
 $("#dealClear").onclick=()=>{owner={};simStarter=null;$("#simSeatPick").querySelectorAll("button").forEach(b=>b.classList.remove("sel"));refreshOwner();};
 $("#simPlay").onclick=()=>{startSimGame();};
-$("#simBulkBtn").onclick=()=>{show('simBulk');};
+$("#simBulkBtn").onclick=()=>{bulkSource="global";bulkUI();show('simBulk');};
 
 /* ---- juego paso a paso (manual + IA) ---- */
 function startSimGame(){
@@ -620,8 +620,106 @@ $("#winProb").onclick=()=>{
   },30);
 };
 
-/* ---- simulación masiva ---- */
+/* ---- análisis didáctico de la mano (criterios del taller) ----
+   El cálculo vive en conocimiento.js (puro); aquí solo se elige qué mano se
+   analiza y se redacta el panel. En partida se analiza la mano viva de Sur y
+   se pasan las fichas de la mesa, para medir la fuerza contra lo que queda
+   vivo de cada palo; con solo el reparto hecho, la mano repartida. */
+function decimal(v){return String(v).replace(".",",");}
+function listaPalos(ps){
+  const t=ps.map(p=>NOMBRE_PALO[p]);          // mismos nombres que las filas de palo
+  if(t.length<=1)return t.join("");
+  return t.slice(0,-1).join(", ")+" y "+t[t.length-1];
+}
+function conMayuscula(t){return t.charAt(0).toUpperCase()+t.slice(1);}
+function fichasHTML(lista){
+  return `<div style="display:flex;flex-wrap:wrap;gap:3px;justify-content:center;margin:6px 0">`+
+    lista.map(k=>{const t=kt(k);return tileHTML(t[0],t[1],"xs");}).join("")+`</div>`;
+}
+function textoDobles(d){
+  if(!d.n) return `Ninguno. Manos sin dobles hay un ${decimal(PROB_DOBLES[0])}%.`;
+  const p=d.prob===null?"menos del 0,01":decimal(d.prob);
+  return `${d.n===1?"Un doble":d.n+" dobles"}: el ${p}% de las manos lleva ${d.n}.`;
+}
+function textoFallas(f){
+  // Los palos ya salen en la fila de arriba; aquí solo la referencia.
+  if(!f.n) return `No fallas a nada. Eso pasa en el ${decimal(PROB_FALLAS[0])}% de las manos.`;
+  const p=f.prob===null?"menos del 0,01":decimal(f.prob);
+  return `Con ${f.n} falla${f.n>1?"s":""} estás en el ${p}% de las manos.`;
+}
+function panelMano(a){
+  const fila=(izq,der)=>`<div class="row"><span class="muted">${izq}</span><span>${der}</span></div>`;
+  const palos=a.porPalo.map(x=>{
+    const nombre=`<b>${conMayuscula(x.nombre)}</b>`;
+    if(!x.n) return `<div class="row" style="opacity:.45"><span>${nombre}</span><span>falla</span></div>`;
+    const marca=x.fuerza?` · <b style="color:var(--ok)">fuerza ${x.claseFuerza==="origen"?"de origen":"adquirida"}</b>`:"";
+    const det=x.fuerza?`<div class="muted" style="font-size:.68rem;text-align:right">(${x.motivo})</div>`:"";
+    return `<div class="row"><span>${nombre}</span><span>${x.n} ficha${x.n>1?"s":""}${marca}</span></div>${det}`;
+  }).join("");
+  const frec=a.frecuenciaPaloMasLargo
+    ? `<div class="muted" style="margin-top:4px;font-size:.72rem">Tu palo más largo: <b>${conMayuscula(a.paloMasLargo.nombre)}</b>, con ${a.paloMasLargo.n} fichas. Llevar ${a.paloMasLargo.n} de un palo es ${a.frecuenciaPaloMasLargo}.</div>` : "";
+  const etiq=a.etiquetas.length
+    ? a.etiquetas.map(e=>`<span class="badge" style="position:static;display:inline-block;margin:0 4px 4px 0">${e}</span>`).join("")
+    : `<span class="muted">sin etiqueta del taller</span>`;
+  // Los porcentajes del taller describen la mano REPARTIDA, de 7. A media
+  // partida siguen siendo útiles como referencia, pero hay que decir que ya
+  // no es una mano de 7 o el panel estaría mintiendo.
+  const aviso=a.n===7?"":`<div class="muted center" style="font-size:.7rem;margin-bottom:4px">Te quedan ${a.n} fichas: los porcentajes de referencia son de manos de 7.</div>`;
+  return `<div class="ovcard" style="max-height:82vh;overflow:auto">
+    <div class="center" style="margin-bottom:4px"><b>🔎 Tu mano (Sur)</b></div>
+    ${aviso}
+    ${fichasHTML(a.fichas)}
+    <div class="probpanel">
+      ${fila("Puntos",`<b>${a.puntos}</b> · mano <b>${a.categoria}</b>`)}
+      <div class="muted" style="font-size:.68rem">Baja ≤32 · Media 33–49 · Alta ≥50</div>
+      ${fila("Dobles",a.dobles.n?a.dobles.lista.join(" "):"ninguno")}
+      <div class="muted" style="font-size:.72rem">${textoDobles(a.dobles)}</div>
+      ${fila("Fallas",a.fallas.n?`<b>${a.fallas.n}</b> (${listaPalos(a.fallas.lista)})`:"ninguna")}
+      <div class="muted" style="font-size:.72rem">${textoFallas(a.fallas)}</div>
+    </div>
+    <div class="probpanel">
+      <div class="muted" style="font-size:.72rem;margin-bottom:4px">Fuerza por palo${a.conJugadas?" (contra lo que queda vivo)":""}:</div>
+      ${palos}
+      ${frec}
+    </div>
+    <div class="probpanel"><div class="center">${etiq}</div></div>
+    <button class="btn ghost" style="width:100%;margin-top:8px" onclick="clearPanel()">Cerrar</button>
+  </div>`;
+}
+$("#tbMano").onclick=()=>{
+  if(!GS&&!dealCompleto()){toast("Primero reparte");return;}
+  const mias=GS?[...GS.hands[0]]:Object.keys(owner).filter(k=>owner[k]===0);
+  const jugadas=GS?GS.sequence:[];
+  dpanel(panelMano(analizarMano(mias,jugadas)));
+};
+
+/* ---- simulación masiva ----
+   Dos fuentes:
+   · "global": repartos nuevos al azar en cada ronda (lo de siempre). Mide el
+     juego, no una mano: por eso usa simulateRound, que es determinista.
+   · "reparto": las 4 manos y el salidor de AHORA, repetidos N veces. Aquí
+     simulateRound no sirve — con la mano fija devolvería N veces el mismo
+     resultado —, así que se juega con playoutRandom, el mismo motor con
+     temperatura que usa "Prob", que sí explora variantes. */
 let bulkStartMode="d6";
+let bulkSource="global";
+const BULK_T=1.1;                 // misma temperatura que el botón Prob
+function dealCompleto(){const c=[0,0,0,0];Object.values(owner).forEach(v=>c[v]++);return c.every(n=>n===7);}
+function bulkUI(){
+  const deReparto=(bulkSource==="reparto");
+  const row=$("#bulkStartRow"); if(row) row.style.display=deReparto?"none":"";
+  const ctx=$("#bulkCtx");
+  if(ctx) ctx.innerHTML=deReparto
+    ? `Sobre el <b>reparto actual</b> · sale ${ROLE[simStarter]} (${POS_COMPASS[posOf(simStarter)]})`
+    : `Sobre <b>repartos nuevos al azar</b> en cada ronda`;
+  $("#bulkOut").innerHTML="";
+}
+$("#tbBulk").onclick=()=>{
+  if(!dealCompleto()){toast("Primero reparte");return;}
+  if(simStarter===null){toast("Elige quién sale");return;}
+  bulkSource="reparto";bulkUI();show('simBulk');
+};
+$("#bulkBack").onclick=()=>{show('simGame');simRender();};   // vuelve a la mesa tal como estaba
 $("#bulkN").oninput=e=>$("#bulkNlab").textContent=e.target.value;
 $("#startD6").onclick=()=>{bulkStartMode="d6";$("#startD6").classList.add("sel","gold");$("#startD6").classList.remove("ghost");$("#startRnd").classList.add("ghost");$("#startRnd").classList.remove("sel","gold");};
 $("#startRnd").onclick=()=>{bulkStartMode="rnd";$("#startRnd").classList.add("sel","gold");$("#startRnd").classList.remove("ghost");$("#startD6").classList.add("ghost");$("#startD6").classList.remove("sel","gold");};
@@ -630,6 +728,7 @@ $("#runBulk").onclick=()=>{
   setTimeout(()=>runBulk(N),30);
 };
 function runBulk(N){
+  if(bulkSource==="reparto")return runBulkDeal(N);
   let winA=0,winB=0,ties=0,domino=0,tranca=0,starterWin=0,ptsSum=0,turnsSum=0;
   const allK=allTiles().map(x=>key(x[0],x[1]));
   for(let i=0;i<N;i++){
@@ -657,6 +756,37 @@ function runBulk(N){
   h+=`<div class="muted" style="margin-top:10px">Reparto de victorias (TÚ+CO / RD+RI / empate):</div>${seg(pct(winA),pct(winB),pct(ties))}`;
   h+=`<div class="muted" style="margin-top:8px">Turnos medios por ronda: ${(turnsSum/N).toFixed(1)} · empates (tranca): ${pct(ties)}%</div>`;
   h+=`<div class="muted" style="margin-top:10px">Salida: ${bulkStartMode==="d6"?"sale quien tiene el 6|6":"sale un jugador al azar"}. Con reparto y estrategia simétricos, la ventaja sobre 50% mide lo que pesa <b>salir</b>.</div>`;
+  $("#bulkOut").innerHTML=h;
+}
+
+// Reparto fijo: playoutRandom reparte el juego con temperatura, así que las N
+// rondas son variantes de LA MISMA mano. No informa de turnos porque
+// playoutRandom no los cuenta (devuelve turns:0), ni de "gana quien sale",
+// que aquí sería siempre la misma pareja.
+function runBulkDeal(N){
+  const pos=posFromDeal();
+  let winA=0,winB=0,ties=0,domino=0,tranca=0,ptsA=0,ptsB=0;
+  for(let i=0;i<N;i++){
+    const r=playoutRandom(pos,BULK_T);
+    if(r.type==="domino")domino++;else tranca++;
+    if(r.winTeam===0){winA++;ptsA+=r.points;}
+    else if(r.winTeam===1){winB++;ptsB+=r.points;}
+    else ties++;
+  }
+  const pct=x=>Math.round(x/N*100);
+  const manos=[0,1,2,3].map(p=>`${ROLE[p]} ${pos.hands[p].length}`).join(" · ");
+  let h=`<div class="stat">
+    <div class="box"><div class="n">${pct(winA)}%</div><div class="l">gana TÚ+CO</div></div>
+    <div class="box"><div class="n">${pct(winB)}%</div><div class="l">gana RD+RI</div></div>
+    <div class="box"><div class="n">${pct(domino)}%</div><div class="l">terminan en dominó</div></div>
+    <div class="box"><div class="n">${pct(tranca)}%</div><div class="l">terminan en tranca</div></div>
+    <div class="box"><div class="n">${winA?(ptsA/winA).toFixed(0):0}</div><div class="l">puntos si gana TÚ+CO</div></div>
+    <div class="box"><div class="n">${winB?(ptsB/winB).toFixed(0):0}</div><div class="l">puntos si gana RD+RI</div></div>
+  </div>`;
+  h+=`<div class="muted" style="margin-top:10px">Reparto de victorias (TÚ+CO / RD+RI / empate):</div>`;
+  h+=`<div class="bar"><div class="seg" style="width:${pct(winA)}%;background:var(--pTU)"></div><div class="seg" style="width:${pct(winB)}%;background:var(--pRD)"></div><div class="seg" style="width:${pct(ties)}%;background:#666"></div></div>`;
+  h+=`<div class="muted" style="margin-top:8px">Empates (tranca): ${pct(ties)}%.</div>`;
+  h+=`<div class="muted" style="margin-top:10px">Siempre la misma mano (${manos} fichas), sale ${ROLE[pos.starter]} (${POS_COMPASS[posOf(pos.starter)]}). Las ${N} rondas son formas distintas de jugarla, así que el reparto de victorias mide cuánto pesa <b>la mano</b> y cuánto el juego.</div>`;
   $("#bulkOut").innerHTML=h;
 }
 
