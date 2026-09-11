@@ -209,6 +209,15 @@
   .band .handv{display:flex; flex-direction:column; gap:5px; align-items:center;}
   .dcenter .banner{position:static; margin:0;}
   #dpanel{position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); z-index:60; max-width:92%; width:340px; display:none;}
+  /* arrastrar una ficha de la mano al tablero para jugarla */
+  .pick.playable{touch-action:none;}          /* que el móvil no se lleve el gesto como scroll */
+  .dragghost{position:fixed; top:0; left:0; z-index:9999; pointer-events:none;
+             filter:drop-shadow(0 6px 10px rgba(0,0,0,.55));}
+  #dcenter.dropOk{outline:2px dashed var(--gold); outline-offset:-6px; border-radius:12px;}
+  /* con las dos puntas posibles, se sombrea la mitad en la que vas a jugar */
+  #dcenter.dropI{background:linear-gradient(90deg, rgba(255,209,102,.26), rgba(255,209,102,.05) 50%, transparent 50%);}
+  #dcenter.dropD{background:linear-gradient(270deg, rgba(255,209,102,.26), rgba(255,209,102,.05) 50%, transparent 50%);}
+
   .ovcard{background:#12331a; border:1px solid var(--gold); border-radius:14px; padding:14px; box-shadow:0 12px 34px #000b; color:var(--ivory);}
   /* aviso "gira el teléfono": solo en táctil, vertical y pantalla estrecha */
   #rotateHint{display:none;}

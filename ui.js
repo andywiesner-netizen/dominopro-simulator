@@ -337,7 +337,7 @@ function renderBand(id,pos,ctx){
     if(!vis){d.innerHTML=backTile(portrait);}
     else{
       d.innerHTML=tileHTML(t[0],t[1],portrait?"md vert":"md")+((isCur&&k===ctx.best)?'<span class="star">⭐</span>':'');
-      if(isCur){ if(ctx.playable[k]){ d.classList.add("playable"); d.onclick=()=>simChoose(k,ctx.playable[k]); } else if(ctx.hasPlayable) d.classList.add("dim"); }
+      if(isCur){ if(ctx.playable[k]){ d.classList.add("playable"); d.dataset.k=k; d.dataset.sides=ctx.playable[k].join(","); d.onclick=()=>simChoose(k,ctx.playable[k]); } else if(ctx.hasPlayable) d.classList.add("dim"); }
     }
     wrap.appendChild(d);
   });
@@ -373,6 +373,104 @@ function simChoose(k,sides){
   }else simDo(k,GS.ends===null?"inicio":sides[0]);
 }
 function simDo(k,side){simPush();const p=GS.current;placeOnBoard(GS,k,side);GS.hands[p].delete(k);GS.lastKey=k;GS.passes=0;GS.log.push(`${ROLE[p]} juega ${k}`);simNext();}
+
+/* ---------- jugar arrastrando la ficha al tablero ----------
+   Con eventos de puntero, no con el arrastre nativo de HTML: el nativo solo
+   responde al ratón y en un teléfono no pasa nada. El toque se queda como
+   estaba (el onclick de renderBand); esto solo añade el arrastre, y solo
+   cuenta como arrastre si el puntero se movió más que el umbral: un toque
+   con pulso tembloroso sigue siendo un toque. */
+const DRAG_UMBRAL=8;
+let drag=null, dragJugo=false;
+
+function dragZona(x,y){const el=document.elementFromPoint(x,y);return el?el.closest("#dcenter"):null;}
+
+// Con la ficha encajando en las dos puntas, la mitad del tablero donde la
+// sueltas decide: izquierda -> I, derecha -> D. Sin caja medible no se infiere
+// y decide el usuario en el panel de siempre.
+function dragLado(x){
+  const b=document.getElementById("boardChain")||document.getElementById("dcenter");
+  const r=b&&b.getBoundingClientRect();
+  if(!r||!r.width)return null;
+  return x<r.left+r.width/2?"I":"D";
+}
+function dragPintar(sobre,lado){
+  const dc=document.getElementById("dcenter");if(!dc)return;
+  dc.classList.toggle("dropOk",!!sobre);
+  dc.classList.toggle("dropI",!!sobre&&lado==="I");
+  dc.classList.toggle("dropD",!!sobre&&lado==="D");
+}
+
+// Quita el fantasma y los escuchadores del arrastre en curso y lo devuelve.
+function dragLimpiar(){
+  if(!drag)return null;
+  const d=drag;drag=null;
+  d.fantasma.remove();
+  d.ficha.removeEventListener("pointermove",dragMover);
+  d.ficha.removeEventListener("pointerup",dragSoltar);
+  d.ficha.removeEventListener("pointercancel",dragSoltar);
+  dragPintar(false,null);
+  return d;
+}
+
+function dragEmpezar(ev){
+  dragJugo=false;                 // un clic huérfano no sobrevive a la pulsación siguiente
+  dragLimpiar();                  // si se perdió un pointerup, no dejes el fantasma anterior colgado
+  if(!GS||GS.over)return;
+  const ficha=ev.target.closest(".pick.playable");
+  if(!ficha||ficha.dataset.k===undefined)return;
+  const k=ficha.dataset.k, t=kt(k);
+  const fantasma=document.createElement("div");
+  fantasma.className="dragghost";
+  fantasma.innerHTML=tileHTML(t[0],t[1],"md");
+  document.body.appendChild(fantasma);
+  drag={k,sides:(ficha.dataset.sides||"").split(",").filter(Boolean),ficha,fantasma,
+        x0:ev.clientX,y0:ev.clientY,movido:false};
+  dragMover(ev);
+  // Si el puntero ya no está activo (toques muy rápidos), capturar lanza; sin
+  // el try el arrastre se quedaría a medias y el fantasma pegado en pantalla.
+  try{ ficha.setPointerCapture?.(ev.pointerId); }catch(_){}
+  ficha.addEventListener("pointermove",dragMover);
+  ficha.addEventListener("pointerup",dragSoltar);
+  ficha.addEventListener("pointercancel",dragSoltar);
+}
+
+function dragMover(ev){
+  if(!drag)return;
+  if(Math.hypot(ev.clientX-drag.x0,ev.clientY-drag.y0)>DRAG_UMBRAL)drag.movido=true;
+  // La ficha se dibuja POR ENCIMA del punto de contacto: si va debajo, el
+  // pulgar la tapa y no ves lo que llevas.
+  drag.fantasma.style.transform=`translate(${ev.clientX}px, ${ev.clientY}px) translate(-50%, -150%)`;
+  const sobre=drag.movido&&!!dragZona(ev.clientX,ev.clientY);
+  dragPintar(sobre,sobre&&drag.sides.length===2?dragLado(ev.clientX):null);
+}
+
+function dragSoltar(ev){
+  const d=dragLimpiar();
+  if(!d)return;
+  const {k,sides,movido}=d;
+  if(!movido)return;                                    // fue un toque: lo juega el onclick
+  // Hubo arrastre. La captura de puntero redirige a la ficha el clic que el
+  // navegador manda al soltar, aunque sueltes en otro sitio: si no lo anulamos,
+  // su onclick jugaría la ficha igual y "soltar fuera" no devolvería nada.
+  dragJugo=true;
+  if(ev.type==="pointercancel")return;                  // gesto abortado: nada cambia
+  if(!dragZona(ev.clientX,ev.clientY))return;           // fuera del tablero: vuelve a la mano
+  if(!GS||GS.over)return;
+  if(GS.ends===null){simDo(k,"inicio");return;}
+  if(sides.length===1){simDo(k,sides[0]);return;}
+  const lado=dragLado(ev.clientX);
+  if(lado)simDo(k,lado); else simChoose(k,sides);
+}
+
+// Tras un arrastre jugado, el clic que el navegador manda después llamaría a
+// simChoose con una ficha que ya no está en la mano.
+document.addEventListener("click",ev=>{
+  if(!dragJugo)return;
+  dragJugo=false;ev.stopPropagation();ev.preventDefault();
+},true);
+document.addEventListener("pointerdown",dragEmpezar);
+
 function simPass(){simPush();GS.log.push(`${ROLE[GS.current]} se pasa`);GS.passes++;simNext();}
 function simAIMove(silent){
   if(!GS||GS.over)return;const cur=GS.current;const moves=aiBestMovesDeep(GS.hands,GS.ends,cur,GS.passes);

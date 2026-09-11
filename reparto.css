@@ -43,6 +43,25 @@
   border-color: rgba(61, 220, 132, .55);
 }
 
+/* Botones bajo el montón: sólo mientras quede algo por repartir */
+.dealbotones {
+  display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;
+  margin: 2px 0 4px;
+}
+.dealbotones button { padding: 8px 14px; font-size: .82rem; }
+
+/* Rebote: la mano llena rechaza la ficha y ésta se queda en su origen */
+@keyframes rebote {
+  0%, 100% { transform: translateX(0); }
+  25%      { transform: translateX(-5px); }
+  75%      { transform: translateX(5px); }
+}
+#simGame.repartiendo .band.zona.rebota {
+  animation: rebote .28s ease-in-out;
+  border-color: var(--danger);
+  background: rgba(227, 90, 90, .16);
+}
+
 /* La ficha que va en la mano, por encima del dedo */
 .dealghost {
   position: fixed; top: 0; left: 0; z-index: 9999;

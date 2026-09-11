@@ -43,7 +43,20 @@
       (elegida ? ` · toca un jugador para darle ${elegida}` : "") +
       `</div>` +
       `<div class="dealgrid" id="dealGrid"></div>` +
-      `<div class="dealpie">Arrastra una ficha a un jugador, o tócala y luego tócalo a él</div>`;
+      (pendientes.length
+        ? `<div class="dealbotones">` +
+          `<button class="btn gold" id="dealResto">🎲 Repartir resto al azar</button>` +
+          (total ? `<button class="btn ghost" id="dealLimpiar">🧹 Limpiar</button>` : "") +
+          `</div>`
+        : "") +
+      `<div class="dealpie">Arrastra una ficha a un jugador, o tócala y luego tócalo a él` +
+      (total ? ` · toca una ya repartida para devolverla al montón` : "") +
+      `</div>`;
+
+    const bResto = document.getElementById("dealResto");
+    if (bResto) bResto.onclick = repartirResto;
+    const bLimpiar = document.getElementById("dealLimpiar");
+    if (bLimpiar) bLimpiar.onclick = limpiar;
 
     const g = document.getElementById("dealGrid");
     pendientes.forEach((k) => {
@@ -102,7 +115,10 @@
   function asignar(k, asiento) {
     if (owner[k] === asiento) return;
     if (contar(asiento) >= 7) {
+      // Rebote: la ficha se queda donde estaba (montón o banda de origen).
+      // owner no se toca, así que no se pierde ni se duplica.
       toast(`${ROLE[asiento]} ya tiene 7`);
+      rebotar(asiento);
       return;
     }
     simDealMode = "manual";
@@ -115,6 +131,50 @@
     if (owner[k] === undefined) return;
     delete owner[k];
     simStarter = null;
+    pintarReparto();
+  }
+
+  function rebotar(asiento) {
+    const id = BANDAS.find((b) => asientoDe(b) === asiento);
+    const el = id && document.getElementById(id);
+    if (!el) return;
+    el.classList.remove("rebota");
+    void el.offsetWidth; // fuerza el reinicio de la animación
+    el.classList.add("rebota");
+    setTimeout(() => el.classList.remove("rebota"), 400);
+  }
+
+  // Reparte lo que siga en el montón entre las manos incompletas hasta dejar
+  // las cuatro a 7. Un hueco por cada sitio libre: así el sorteo no puede
+  // pasarse del tope ni dejar a nadie corto.
+  function repartirResto() {
+    const pendientes = shuffle(libres());
+    if (!pendientes.length) {
+      toast("El montón ya está vacío");
+      return;
+    }
+    const huecos = [];
+    [0, 1, 2, 3].forEach((p) => {
+      for (let i = contar(p); i < 7; i++) huecos.push(p);
+    });
+    shuffle(huecos);
+    const eranManuales = 28 - pendientes.length;
+    pendientes.forEach((k, i) => (owner[k] = huecos[i]));
+    simDealMode = eranManuales ? "manual" : "aleatoria";
+    simStarter = null;
+    elegida = null;
+    pintarReparto();
+    toast(
+      eranManuales
+        ? `${pendientes.length} fichas repartidas al azar`
+        : "Repartido · elige quién sale"
+    );
+  }
+
+  function limpiar() {
+    owner = {};
+    simStarter = null;
+    elegida = null;
     pintarReparto();
   }
 
@@ -157,13 +217,7 @@
       };
     });
     const lim = document.querySelector("#dpanel button[data-limpiar]");
-    if (lim)
-      lim.onclick = () => {
-        owner = {};
-        simStarter = null;
-        elegida = null;
-        pintarReparto();
-      };
+    if (lim) lim.onclick = limpiar;
   }
 
   /* ---------- arrastre con eventos de puntero ---------- */
@@ -201,7 +255,9 @@
       desdeBanda: owner[k] !== undefined,
     };
     mover(ev);
-    ficha.setPointerCapture?.(ev.pointerId);
+    // Si el puntero ya no está activo (toques muy rápidos), capturar lanza.
+    // Sin el try, el arrastre se quedaría a medias y el fantasma en pantalla.
+    try { ficha.setPointerCapture?.(ev.pointerId); } catch (_) {}
     ficha.addEventListener("pointermove", mover);
     ficha.addEventListener("pointerup", soltar);
     ficha.addEventListener("pointercancel", soltar);
@@ -301,4 +357,10 @@
       show("simGame");
       toast("Repartido · elige quién sale");
     };
+
+  // ui.js llama a simIdle() al cargarse, cuando este fichero todavía no existe
+  // y el enganche de arriba aún no está puesto: sin esto, al abrir la app se
+  // ve la mesa vacía en vez del reparto.
+  if (!GS && !document.getElementById("simGame")?.classList.contains("hidden"))
+    simIdle();
 })();
