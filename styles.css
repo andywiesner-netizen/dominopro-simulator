@@ -47,6 +47,7 @@
   .badge{position:absolute; top:-7px; right:-7px; background:var(--gold); color:#3a2c00;
          font-size:.62rem; font-weight:800; border-radius:10px; padding:1px 5px;}
   .star{position:absolute; top:-9px; left:-6px; font-size:1rem;}
+  .star.sug{left:auto; right:-6px;}   /* la bombilla al lado contrario de la estrella */
   .owner{position:absolute; inset:-3px; border-radius:12px; pointer-events:none; border:3px solid transparent;}
   .own0{border-color:var(--pTU);} .own1{border-color:var(--pRD);} .own2{border-color:var(--pCO);} .own3{border-color:var(--pRI);}
 

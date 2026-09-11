@@ -176,6 +176,21 @@ function asesorSalida(misFichas) {
   const acompañados = dobles.filter(d => d.acomp >= 2 && d.acomp <= 5);
   const enPelo = dobles.filter(d => d.acomp === 1);
 
+  /* Criterio A. Con tres dobles o más la mano pesa demasiado: generalmente
+     sale el más alto aunque vaya mal acompañado, para descargarlo cuanto
+     antes. Con solo dos sigue mandando el mejor acompañado. */
+  if (dobles.length >= 3) {
+    const alto = dobles.reduce((a, b) => (b.palo > a.palo ? b : a));
+    dobles.forEach(d => { if (d !== alto) apunta(d.ficha, `doble ${ACOMP[d.acomp]}`); });
+    const palo = NOMBRE_PALO[alto.palo];
+    const pensada = alto.acomp >= 3 ? "SPP" : "CPP";
+    const cola = alto.acomp >= 3
+      ? `sin pensada (lo acompañan ${alto.acomp - 1} fichas de ${palo})`
+      : `con pensada porque va ${ACOMP[alto.acomp]}`;
+    return cierra(alto.ficha, pensada,
+      `Tienes ${dobles.length} dobles: sale el más alto (${alto.ficha}) para descargarlo, ${cola}.`, "media");
+  }
+
   if (acompañados.length) {
     let elegido = acompañados[0];                       // regla 1: el mejor acompañado; a igualdad, el más alto
     let regla = 1;
@@ -209,31 +224,275 @@ function asesorSalida(misFichas) {
       `el ${alto.ficha}, con pensada, para soltarlo pronto.`, "media");
   }
 
-  /* Regla 7: sin doble con el que salir, ficha mixta que una los dos palos
-     más largos. Un único doble en pelo tampoco sirve de salida —no lo puedes
-     acompañar—, así que la mano cae también aquí.
-     Heurística floja, a afinar: puntúa por fichas que te quedan de cada punta
-     y, a igualdad, evita romper un palo donde tienes fuerza. */
+  /* Criterio B. Sin doble con el que salir, se sale de mixta. Un único doble
+     en pelo tampoco es candidato: no lo puedes acompañar. */
   const mixtas = mano.filter(t => !esDoble(t));
   if (!mixtas.length) return cierra(nombreFicha(mano[0]), "CPP", `Solo llevas dobles: sale el ${nombreFicha(mano[0])}.`, "baja");
+  if (enPelo.length === 1) apunta(enPelo[0].ficha, "doble en pelo, mejor no salir con él");
+  const otraPunta = (t, p) => (t[0] === p ? t[1] : t[0]);
 
-  const puntuadas = mixtas.map(t => ({
-    t,
-    ficha: nombreFicha(t),
-    apoyo: cuenta[t[0]] + cuenta[t[1]],
-    rompeFuerza: hayFuerza(t[0]) || hayFuerza(t[1]),
+  // B.1 — Con fuerza en un palo (4 o más fichas), se abre ese palo enganchando
+  //       con el siguiente más largo.
+  const fuertes = [0, 1, 2, 3, 4, 5, 6].filter(p => cuenta[p] >= 4).sort((a, b) => cuenta[b] - cuenta[a] || b - a);
+  if (fuertes.length) {
+    const f = fuertes[0];
+    const conFuerte = mixtas.filter(t => t[0] === f || t[1] === f)
+      .sort((a, b) => cuenta[otraPunta(b, f)] - cuenta[otraPunta(a, f)] || (b[0] + b[1]) - (a[0] + a[1]));
+    if (conFuerte.length) {
+      const t = conFuerte[0], o = otraPunta(t, f);
+      conFuerte.slice(1, 3).forEach(x => apunta(nombreFicha(x), `también abre ${NOMBRE_PALO[f]}`));
+      return cierra(nombreFicha(t), "SPP",
+        `Sin doble con el que salir, pero tienes fuerza en ${NOMBRE_PALO[f]} (${cuenta[f]} fichas): ` +
+        `sale el ${nombreFicha(t)}, que abre tu palo fuerte y engancha con ${NOMBRE_PALO[o]} ` +
+        `(${cuenta[o]}), sin pensada.`, "media");
+    }
+  }
+
+  // B.2 — Sin fuerza: la mixta de más puntos que puedas repetir por las dos
+  //       puntas (≥2 fichas de cada palo); a igualdad, la de palos más largos.
+  const repetibles = mixtas.filter(t => cuenta[t[0]] >= 2 && cuenta[t[1]] >= 2);
+  const pool = repetibles.length ? repetibles : mixtas;
+  const puntuadas = pool.map(t => ({
+    t, ficha: nombreFicha(t),
     pips: t[0] + t[1],
-  })).sort((a, b) => b.apoyo - a.apoyo || a.rompeFuerza - b.rompeFuerza || b.pips - a.pips);
+    apoyo: cuenta[t[0]] + cuenta[t[1]],
+  })).sort((a, b) => b.pips - a.pips || b.apoyo - a.apoyo);
 
   const m = puntuadas[0];
-  puntuadas.slice(1, 3).forEach(x => apunta(x.ficha, `${x.apoyo} fichas de apoyo`));
-  if (enPelo.length === 1) apunta(enPelo[0].ficha, "doble en pelo, mejor no salir con él");
+  puntuadas.slice(1, 3).forEach(x => apunta(x.ficha, `${x.pips} puntos, ${x.apoyo} de apoyo`));
   return cierra(m.ficha, "CPP",
-    `Sin doble con el que salir: sale el ${m.ficha}, que une tus dos palos más largos ` +
-    `(${NOMBRE_PALO[m.t[0]]} y ${NOMBRE_PALO[m.t[1]]}), para poder seguir por las dos puntas.`, "baja");
+    repetibles.length
+      ? `Sin doble con el que salir: sale el ${m.ficha}, la mixta de más puntos que puedes repetir ` +
+        `por las dos puntas (${NOMBRE_PALO[m.t[0]]} y ${NOMBRE_PALO[m.t[1]]}, ${cuenta[m.t[0]]} y ${cuenta[m.t[1]]} fichas).`
+      : `Sin doble con el que salir y sin palo que puedas repetir: sale el ${m.ficha}, ` +
+        `la de más apoyo entre ${NOMBRE_PALO[m.t[0]]} y ${NOMBRE_PALO[m.t[1]]}.`,
+    repetibles.length ? "media" : "baja");
+}
+
+/* ================= SUGERIR JUGADA =================
+   Principio de diseño: esta sugerencia razona SOLO con lo que el jugador sabe
+   legítimamente —su mano, las puntas, quién jugó qué (qué castigó y qué
+   generó), quién pasó y con qué puntas, y quién salió con qué—. NUNCA mira
+   las manos ajenas. Por eso no tiene por qué coincidir con aiBestMovesDeep,
+   que sí las ve: el contraste entre las dos es parte de lo didáctico.
+
+   Pesos iniciales, a afinar. Positivos animan, negativos frenan. */
+const PESOS_SUGERENCIA = {
+  repetirCompanero:       10,   // P2  toca un palo que abrió el compañero
+  castigarContrario:      10,   // P3  castiga un palo que generó un contrario
+  facilitarCompanero:      9,   // P9  genera un palo que el compañero tiene
+  generarFallaCompanero: -12,   // P9  genera un palo donde el compañero pasó
+  generarFallaContrario:  11,   // P10 genera un palo donde un contrario pasó
+  generarPaloContrario:   -8,   // P10 genera un palo que abrió un contrario
+  cuadrarBien:             7,   // P10 cuadra a un número que dominas o que fallan
+  quedaRespuesta:          8,   // te queda al menos una punta contestable
+  sinRespuesta:          -14,   // te quedas sin salida por las dos puntas
+  encimaSalidaContrario:   5,   // P5/P6 por encima de la salida del contrario
+  debajoSalidaCompanero:   5,   // P7/P8 por debajo de la salida del compañero
+  generarFuerzaPropia:     6,   // P4  abre un palo donde tienes fuerza
+  gastarUltimaDelPalo:    -6,   // gastas tu única respuesta a ese número
+  dobleSolo:              -4,   // te quedas con un doble sin acompañamiento
+  seguroAmbasPuntas:       6,   // respuesta garantizada por las dos puntas
+  puntosPorPip:         0.45,   // descargar peso cuando la mano se cierra
+};
+
+/* Rehace la mesa desde las jugadas en orden. Cada entrada es
+   {jugador, ficha, punta?} o {jugador, paso:true}. Valida legalidad y
+   devuelve puntas, secuencia anotada (castiga / genera) y pases. */
+function reconstruirMesa(jugadas) {
+  let ends = null;
+  const secuencia = [], pases = [];
+  (jugadas || []).forEach((x, i) => {
+    if (x.paso) { pases.push({ jugador: x.jugador, ends: ends ? ends.slice() : null }); return; }
+    const t = ficha(x.ficha);
+    if (!t) throw new Error("jugada " + i + ": ficha invalida " + x.ficha);
+    if (ends === null) {                       // la salida genera sus dos numeros
+      ends = [t[0], t[1]];
+      secuencia.push({ jugador: x.jugador, ficha: nombreFicha(t), castiga: null,
+                       genera: t[0] === t[1] ? [t[0]] : [t[0], t[1]], ends: ends.slice() });
+      return;
+    }
+    const casaI = t[0] === ends[0] || t[1] === ends[0];
+    const casaD = t[0] === ends[1] || t[1] === ends[1];
+    let lado = x.punta;
+    if (lado !== "I" && lado !== "D") {
+      if (!casaI && !casaD) throw new Error("jugada " + i + ": " + x.ficha + " no casa en [" + ends + "]");
+      lado = casaI ? "I" : "D";
+    } else if ((lado === "I" && !casaI) || (lado === "D" && !casaD)) {
+      throw new Error("jugada " + i + ": " + x.ficha + " no casa por la punta " + lado + " en [" + ends + "]");
+    }
+    const idx = lado === "I" ? 0 : 1, castiga = ends[idx];
+    const genera = t[0] === castiga ? t[1] : t[0];
+    ends[idx] = genera;
+    secuencia.push({ jugador: x.jugador, ficha: nombreFicha(t), punta: lado,
+                     castiga: castiga, genera: [genera], ends: ends.slice() });
+  });
+  return { ends: ends, secuencia: secuencia, pases: pases };
+}
+
+/* sugerirJugada(estado)
+   estado = { yo, miMano, ends, secuencia, pases, salidor, salida,
+              pasesSeguidos?, contrasteIA? }
+   contrasteIA se recibe y se devuelve tal cual: calcularlo exigiría ver las
+   manos ajenas, y esta función no las mira. */
+function sugerirJugada(estado) {
+  const P = PESOS_SUGERENCIA;
+  const yo = estado.yo, mano = fichas(estado.miMano), ends = estado.ends;
+  const secuencia = estado.secuencia || [], pases = estado.pases || [];
+  const contrasteIA = estado.contrasteIA || null;
+  if (!mano.length) return null;
+
+  // Con la mesa vacia la decision es la salida: la resuelve el asesor de salida.
+  if (!ends) {
+    const sal = asesorSalida(estado.miMano);
+    if (!sal) return null;
+    return { recomendada: { ficha: sal.ficha, punta: "inicio" },
+             razones: [{ peso: null, principio: "salida", texto: sal.motivo }],
+             contras: [], confianza: sal.confianza, porQueNo: null,
+             alternativas: [], contrasteIA: contrasteIA, esSalida: true };
+  }
+
+  const companero = (yo + 2) % 4;
+  const contrarios = [(yo + 1) % 4, (yo + 3) % 4];
+
+  // --- lo que delata cada jugador con lo que ha hecho ---
+  const generoPor = {}, tocoPor = {}, fallaDe = {};
+  [0, 1, 2, 3].forEach(j => { generoPor[j] = new Set(); tocoPor[j] = new Set(); fallaDe[j] = new Set(); });
+  secuencia.forEach(s => {
+    (s.genera || []).forEach(g => { generoPor[s.jugador].add(g); tocoPor[s.jugador].add(g); });
+    if (s.castiga !== null && s.castiga !== undefined) tocoPor[s.jugador].add(s.castiga);
+  });
+  pases.forEach(p => (p.ends || []).forEach(e => fallaDe[p.jugador].add(e)));
+
+  const nums = ficha(estado.salida);
+  const refSalida = nums ? Math.max(nums[0], nums[1]) : null;
+  const salidorContrario = contrarios.includes(estado.salidor);
+  const salidorCompanero = estado.salidor === companero;
+
+  const analisis = analizarMano(estado.miMano, secuencia.map(s => s.ficha));
+  const tengoFuerza = n => analisis.porPalo[n].fuerza;
+  const misDelPalo = n => mano.filter(t => t[0] === n || t[1] === n).length;
+
+  // --- jugadas legales (ficha + punta), sin duplicar las equivalentes ---
+  const legales = [];
+  mano.forEach(t => {
+    [0, 1].forEach(i => {
+      if (t[0] !== ends[i] && t[1] !== ends[i]) return;
+      const castiga = ends[i], genera = t[0] === castiga ? t[1] : t[0];
+      const nuevas = ends.slice(); nuevas[i] = genera;
+      const clave = nombreFicha(t) + "|" + castiga + "|" + genera;
+      if (legales.some(m => m.clave === clave)) return;
+      legales.push({ clave: clave, t: t, ficha: nombreFicha(t), punta: i === 0 ? "I" : "D",
+                     castiga: castiga, genera: genera, nuevas: nuevas });
+    });
+  });
+  if (!legales.length) return null;
+
+  const evaluadas = legales.map(m => {
+    const razones = [];
+    let puntos = 0;
+    const suma = (peso, texto, principio) => {
+      if (!peso) return;
+      puntos += peso; razones.push({ peso: peso, texto: texto, principio: principio });
+    };
+    const resto = mano.slice();
+    resto.splice(resto.findIndex(t => nombreFicha(t) === m.ficha), 1);
+    const puedo = n => resto.some(t => t[0] === n || t[1] === n);
+
+    // P2 - repetir lo que abrio el compañero
+    const repiteGen = generoPor[companero].has(m.genera);
+    const repiteCas = generoPor[companero].has(m.castiga);
+    const repiteSal = salidorCompanero && nums && (nums.includes(m.genera) || nums.includes(m.castiga));
+    if (repiteGen || repiteCas || repiteSal)
+      suma(P.repetirCompanero,
+        "repite el " + NOMBRE_PALO[repiteGen ? m.genera : (repiteCas ? m.castiga : (nums.includes(m.genera) ? m.genera : m.castiga))] +
+        " que abrio tu compañero", "P2");
+
+    // P3 - castigar lo que abrio el contrario
+    if (contrarios.some(c => generoPor[c].has(m.castiga)))
+      suma(P.castigarContrario, "castiga el " + NOMBRE_PALO[m.castiga] + ", que abrio un contrario", "P3");
+
+    // P9 - facilidades al compañero
+    if (tocoPor[companero].has(m.genera))
+      suma(P.facilitarCompanero, "le deja " + NOMBRE_PALO[m.genera] + " al compañero, que lo ha jugado", "P9");
+    if (fallaDe[companero].has(m.genera))
+      suma(P.generarFallaCompanero, "abre " + NOMBRE_PALO[m.genera] + " y tu compañero fallo a ese numero", "P9");
+
+    // P10 - dificultades al contrario
+    if (contrarios.some(c => fallaDe[c].has(m.genera)))
+      suma(P.generarFallaContrario, "abre " + NOMBRE_PALO[m.genera] + ", numero al que fallo un contrario", "P10");
+    if (contrarios.some(c => generoPor[c].has(m.genera)))
+      suma(P.generarPaloContrario, "le sirve " + NOMBRE_PALO[m.genera] + " a un contrario, que lo abrio", "P10");
+    if (m.nuevas[0] === m.nuevas[1]) {
+      const n = m.nuevas[0];
+      if (contrarios.some(c => fallaDe[c].has(n)) || tengoFuerza(n))
+        suma(P.cuadrarBien, "cuadra a " + NOMBRE_PALO[n] + ", numero que dominas o que falla un contrario", "P10");
+    }
+
+    // P5/P6 y P7/P8 - por encima del contrario, por debajo del compañero
+    if (salidorContrario && refSalida !== null && (m.genera > refSalida || m.castiga > refSalida))
+      suma(P.encimaSalidaContrario, "va por encima del " + refSalida + " con el que salio el contrario", "P5/P6");
+    if (salidorCompanero && refSalida !== null && (m.genera < refSalida || m.castiga < refSalida))
+      suma(P.debajoSalidaCompanero, "va por debajo del " + refSalida + " con el que salio tu compañero", "P7/P8");
+
+    // P4 - indicar lo que tienes
+    if (tengoFuerza(m.genera))
+      suma(P.generarFuerzaPropia, "abre " + NOMBRE_PALO[m.genera] + ", donde tienes fuerza", "P4");
+
+    // irse de la falla / seguro
+    const rI = puedo(m.nuevas[0]), rD = puedo(m.nuevas[1]);
+    if (rI && rD) suma(P.seguroAmbasPuntas, "te deja respuesta por las dos puntas", "seguro");
+    else if (rI || rD) suma(P.quedaRespuesta, "te deja respuesta por una punta", "falla");
+    else suma(P.sinRespuesta, "te quedas sin respuesta por ninguna punta", "falla");
+
+    // proteccion
+    // gastar la ultima ficha de un palo que sigue abierto por alguna punta
+    [m.castiga, m.genera].forEach(n => {
+      if (misDelPalo(n) === 1 && m.nuevas.includes(n) && !puedo(n))
+        suma(P.gastarUltimaDelPalo, "gasta tu unica ficha de " + NOMBRE_PALO[n] + ", que sigue abierto", "proteccion");
+    });
+    if (resto.some(t => t[0] === t[1] && !resto.some(x => x !== t && (x[0] === t[0] || x[1] === t[0]))))
+      suma(P.dobleSolo, "te deja un doble sin acompañamiento", "proteccion");
+
+    // puntos: pesan mas segun se cierra la mano
+    const cierre = Math.min(1, (estado.pasesSeguidos || 0) * 0.3 + (7 - mano.length) / 7);
+    const pips = m.t[0] + m.t[1];
+    if (cierre > 0 && pips) suma(+(P.puntosPorPip * pips * cierre).toFixed(2), "descarga " + pips + " puntos", "puntos");
+
+    razones.sort((a, b) => Math.abs(b.peso) - Math.abs(a.peso));
+    return { ficha: m.ficha, punta: m.punta, castiga: m.castiga, genera: m.genera,
+             nuevas: m.nuevas, puntos: +puntos.toFixed(2), razones: razones };
+  }).sort((a, b) => b.puntos - a.puntos || (b.castiga + b.genera) - (a.castiga + a.genera));
+
+  const mejor = evaluadas[0], segunda = evaluadas[1] || null;
+  const margen = segunda ? mejor.puntos - segunda.puntos : Infinity;
+  const confianza = margen >= 8 ? "alta" : margen >= 3 ? "media" : "baja";
+
+  let porQueNo = null;
+  if (segunda) {
+    const suyas = new Set(segunda.razones.filter(r => r.peso > 0).map(r => r.principio));
+    const gana = mejor.razones.filter(r => r.peso > 0 && !suyas.has(r.principio));
+    const pierde = segunda.razones.filter(r => r.peso < 0);
+    porQueNo = "El " + segunda.ficha + " queda cerca (" + segunda.puntos + " frente a " + mejor.puntos + ")" +
+      (gana.length ? ", pero no " + gana[0].texto : "") +
+      (pierde.length ? " y " + pierde[0].texto : "") + ".";
+  }
+
+  return {
+    recomendada: { ficha: mejor.ficha, punta: mejor.punta, castiga: mejor.castiga,
+                   genera: mejor.genera, puntos: mejor.puntos },
+    razones: mejor.razones.filter(r => r.peso > 0).slice(0, 3),
+    contras: mejor.razones.filter(r => r.peso < 0),
+    confianza: confianza,
+    porQueNo: porQueNo,
+    alternativas: evaluadas.slice(1).map(m => ({ ficha: m.ficha, punta: m.punta,
+      puntos: m.puntos, razones: m.razones.slice(0, 2) })),
+    contrasteIA: contrasteIA,
+  };
 }
 
 // Para poder probarlo con node fuera del navegador.
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { analizarMano, asesorSalida, ficha, NOMBRE_PALO, ACOMP, PROB_DOBLES, PROB_FALLAS, FREQ_PALO };
+  module.exports = { analizarMano, asesorSalida, sugerirJugada, reconstruirMesa, ficha,
+                     NOMBRE_PALO, ACOMP, PESOS_SUGERENCIA, PROB_DOBLES, PROB_FALLAS, FREQ_PALO };
 }

@@ -224,13 +224,13 @@ $("#simBulkBtn").onclick=()=>{bulkSource="global";bulkUI();show('simBulk');};
 /* ---- juego paso a paso (manual + IA) ---- */
 function startSimGame(){
   const hands=[0,1,2,3].map(p=>new Set(Object.keys(owner).filter(k=>owner[k]===p)));
-  GS={hands,ends:null,sequence:[],current:simStarter,passes:0,over:false,history:[],log:[]};
+  GS={hands,ends:null,sequence:[],current:simStarter,passes:0,over:false,history:[],log:[],hist:[]};
   GS.initial=simSnap();
   show('simGame');simRender();
 }
-function simSnap(){return JSON.stringify({hands:GS.hands.map(s=>[...s]),ends:GS.ends,sequence:GS.sequence,current:GS.current,passes:GS.passes,over:GS.over,log:GS.log.slice()});}
+function simSnap(){return JSON.stringify({hands:GS.hands.map(s=>[...s]),ends:GS.ends,sequence:GS.sequence,current:GS.current,passes:GS.passes,over:GS.over,log:GS.log.slice(),hist:GS.hist.slice()});}
 function simPush(){GS.history.push(simSnap());if(GS.history.length>400)GS.history.shift();}
-function simRestore(s){const o=JSON.parse(s);GS.hands=o.hands.map(a=>new Set(a));GS.ends=o.ends;GS.sequence=o.sequence;GS.current=o.current;GS.passes=o.passes;GS.over=o.over;GS.log=o.log;GS.lastKey=null;}
+function simRestore(s){sugeridaK=null;const o=JSON.parse(s);GS.hands=o.hands.map(a=>new Set(a));GS.ends=o.ends;GS.sequence=o.sequence;GS.current=o.current;GS.passes=o.passes;GS.over=o.over;GS.log=o.log;GS.hist=o.hist||[];GS.lastKey=null;}
 function simUndo(){if(!GS||!GS.history.length){toast("Estás al inicio");return;}simRestore(GS.history.pop());GS.over=false;show('simGame');simRender();}
 function simToStart(){if(!GS){return;}if(!GS.history.length&&!GS.initial){toast("Ya al inicio");return;}simRestore(GS.initial);GS.history=[];GS.over=false;show('simGame');simRender();}
 $("#sUndo").onclick=simUndo;
@@ -350,7 +350,8 @@ function renderBand(id,pos,ctx){
     const t=kt(k);const d=document.createElement("div");d.className="pick";
     if(!vis){d.innerHTML=backTile(portrait);}
     else{
-      d.innerHTML=tileHTML(t[0],t[1],portrait?"md vert":"md")+((isCur&&k===ctx.best)?'<span class="star">⭐</span>':'');
+      d.innerHTML=tileHTML(t[0],t[1],portrait?"md vert":"md")+((isCur&&k===ctx.best)?'<span class="star">⭐</span>':'')
+        +((isCur&&k===sugeridaK)?'<span class="star sug">💡</span>':'');
       if(isCur){ if(ctx.playable[k]){ d.classList.add("playable"); d.dataset.k=k; d.dataset.sides=ctx.playable[k].join(","); d.onclick=()=>simChoose(k,ctx.playable[k]); } else if(ctx.hasPlayable) d.classList.add("dim"); }
     }
     wrap.appendChild(d);
@@ -386,7 +387,7 @@ function simChoose(k,sides){
     document.querySelectorAll("#dpanel button[data-s]").forEach(b=>b.onclick=()=>{clearPanel();simDo(k,b.dataset.s);});
   }else simDo(k,GS.ends===null?"inicio":sides[0]);
 }
-function simDo(k,side){simPush();const p=GS.current;placeOnBoard(GS,k,side);GS.hands[p].delete(k);GS.lastKey=k;GS.passes=0;GS.log.push(`${ROLE[p]} juega ${k}`);simNext();}
+function simDo(k,side){sugeridaK=null;simPush();const p=GS.current;GS.hist.push({jugador:p,ficha:k,punta:GS.ends===null?null:side});placeOnBoard(GS,k,side);GS.hands[p].delete(k);GS.lastKey=k;GS.passes=0;GS.log.push(`${ROLE[p]} juega ${k}`);simNext();}
 
 /* ---------- jugar arrastrando la ficha al tablero ----------
    Con eventos de puntero, no con el arrastre nativo de HTML: el nativo solo
@@ -485,12 +486,12 @@ document.addEventListener("click",ev=>{
 },true);
 document.addEventListener("pointerdown",dragEmpezar);
 
-function simPass(){simPush();GS.log.push(`${ROLE[GS.current]} se pasa`);GS.passes++;simNext();}
+function simPass(){sugeridaK=null;simPush();GS.hist.push({jugador:GS.current,paso:true});GS.log.push(`${ROLE[GS.current]} se pasa`);GS.passes++;simNext();}
 function simAIMove(silent){
   if(!GS||GS.over)return;const cur=GS.current;const moves=aiBestMovesDeep(GS.hands,GS.ends,cur,GS.passes);
   if(!silent)simPush();else GS.history.push(simSnap());
-  if(moves.length){const m=moves[0];placeOnBoard(GS,m.k,m.side);GS.hands[cur].delete(m.k);GS.lastKey=m.k;GS.passes=0;GS.log.push(`${ROLE[cur]} juega ${m.k}`);}
-  else{GS.passes++;GS.log.push(`${ROLE[cur]} se pasa`);}
+  if(moves.length){const m=moves[0];GS.hist.push({jugador:cur,ficha:m.k,punta:GS.ends===null?null:m.side});placeOnBoard(GS,m.k,m.side);GS.hands[cur].delete(m.k);GS.lastKey=m.k;GS.passes=0;GS.log.push(`${ROLE[cur]} juega ${m.k}`);}
+  else{GS.hist.push({jugador:cur,paso:true});GS.passes++;GS.log.push(`${ROLE[cur]} se pasa`);}
   simNext(silent);
 }
 function simNext(silent){
@@ -709,6 +710,75 @@ $("#tbMano").onclick=()=>{
   // El consejo de salida solo tiene sentido con la mesa vacía y saliendo tú.
   const saleSur=GS?(GS.ends===null&&GS.current===0):(simStarter===0);
   dpanel(panelMano(analizarMano(mias,jugadas),saleSur?asesorSalida(mias):null));
+};
+
+/* ---- sugerir jugada con explicación ----
+   El consejo sale de conocimiento.js, que solo mira lo que tú sabes: tu mano,
+   las puntas, quién jugó qué y quién pasó. La IA (aiBestMovesDeep) ve las
+   cuatro manos, así que se muestra aparte, como contraste. */
+let sugeridaK=null;                     // ficha marcada con 💡 en tu mano
+function estadoParaSugerir(){
+  if(!GS||GS.over) return null;
+  const hist=GS.hist||[];
+  let mesa; try{ mesa=reconstruirMesa(hist); }catch(e){ return null; }
+  const primera=hist.find(h=>!h.paso);
+  return {
+    yo:GS.current, miMano:[...GS.hands[GS.current]], ends:GS.ends,
+    secuencia:mesa.secuencia, pases:mesa.pases,
+    salidor:simStarter, salida:primera?primera.ficha:null,
+    pasesSeguidos:GS.passes,
+  };
+}
+function panelSugerir(s,ia){
+  const t=kt(s.recomendada.ficha);
+  const col={alta:"var(--ok)",media:"var(--gold)",baja:"var(--dim)"}[s.confianza]||"var(--dim)";
+  const punta=s.recomendada.punta==="I"?"punta izquierda":s.recomendada.punta==="D"?"punta derecha":"salida";
+  const razones=s.razones.map(r=>`<div class="row"><span>${r.texto}</span><span class="muted" style="white-space:nowrap">&nbsp;${r.principio}</span></div>`).join("")
+    || `<div class="muted">Sin razones de peso: es la menos mala.</div>`;
+  const contras=s.contras.length
+    ? `<div class="muted" style="font-size:.7rem;margin-top:4px">En contra: ${s.contras.map(r=>r.texto).join("; ")}.</div>` : "";
+  const alts=s.alternativas.slice(0,3).map(a=>
+    `<div class="row"><span>${a.ficha} <span class="muted">(${a.punta==="I"?"izq":"der"})</span></span><span>${a.puntos}</span></div>`).join("");
+  const coincide=ia&&ia.k===s.recomendada.ficha;
+  const bloqueIA=ia
+    ? `<div class="probpanel" style="margin-top:8px">
+         <div class="muted" style="font-size:.72rem">La IA con información completa jugaría:</div>
+         <div style="font-weight:800">${ia.k} <span class="muted" style="font-weight:400">(${ia.side==="I"?"izq":ia.side==="D"?"der":"salida"})</span></div>
+         <div class="muted" style="font-size:.7rem;margin-top:2px">${coincide
+             ? "✅ Coincide con el consejo."
+             : "↔️ No coincide: la IA ve las cuatro manos; el consejo solo lo que tú sabes."}</div>
+       </div>` : "";
+  return `<div class="ovcard" style="max-height:82vh;overflow:auto">
+    <div class="center" style="margin-bottom:4px"><b>💡 Jugada sugerida</b></div>
+    <div style="display:flex;align-items:center;gap:8px;justify-content:center;margin:6px 0">
+      ${tileHTML(t[0],t[1],"md")}
+      <div><div style="font-weight:800">${s.recomendada.ficha}</div>
+        <div class="muted" style="font-size:.7rem">por la ${punta}</div></div>
+    </div>
+    <div class="probpanel">
+      <div class="muted" style="font-size:.72rem;margin-bottom:4px">Por qué:</div>
+      ${razones}${contras}
+      <div style="font-size:.7rem;margin-top:6px">Confianza: <b style="color:${col}">${s.confianza}</b></div>
+    </div>
+    ${s.porQueNo?`<div class="muted" style="font-size:.72rem;margin-top:6px">${s.porQueNo}</div>`:""}
+    ${alts?`<div class="probpanel" style="margin-top:8px"><div class="muted" style="font-size:.72rem;margin-bottom:4px">Alternativas:</div>${alts}</div>`:""}
+    ${bloqueIA}
+    <button class="btn ghost" style="width:100%;margin-top:8px" onclick="clearPanel()">Cerrar</button>
+  </div>`;
+}
+$("#tbSug").onclick=()=>{
+  if(!GS){toast("Primero reparte");return;}
+  if(GS.over){toast("La ronda ya terminó");return;}
+  if(GS.current!==0){toast(`No es tu turno (le toca a ${ROLE[GS.current]})`);return;}
+  const est=estadoParaSugerir();
+  if(!est){toast("No puedo reconstruir la mesa");return;}
+  const s=sugerirJugada(est);
+  if(!s){toast("No tienes jugada");return;}
+  const mv=aiBestMovesDeep(GS.hands,GS.ends,GS.current,GS.passes);
+  const ia=mv.length?{k:mv[0].k,side:mv[0].side}:null;
+  sugeridaK=s.recomendada.ficha;
+  simRender();
+  dpanel(panelSugerir(s,ia));
 };
 
 /* ---- simulación masiva ----
