@@ -233,6 +233,15 @@
   .txtcampo{width:100%; background:#0a1c0d; color:var(--ivory); font-size:.82rem;
             border:1px solid rgba(255,255,255,.2); border-radius:10px; padding:7px 9px;}
 
+  .cursorbar{display:flex; gap:4px; align-items:center; justify-content:center; flex-wrap:wrap; margin:3px 0;}
+  .cursorbar .curnum{color:var(--ivory); font-size:.72rem; padding:0 6px;}
+  .histrow{cursor:pointer; border-radius:6px; padding:1px 4px;}
+  .histrow:hover{background:rgba(255,255,255,.06);}
+  .histrow.aqui{background:rgba(255,209,102,.18); outline:1px solid var(--gold);}
+  .vd{font-size:.9rem;} .v-correcta{color:var(--ok);} .v-dudosa{color:var(--gold);} .v-error{color:var(--danger);}
+  .difiere{margin-top:6px; padding:5px 7px; border-radius:8px; font-size:.72rem;
+           background:rgba(255,209,102,.14); border:1px solid rgba(255,209,102,.45);}
+
   .ovcard{background:#12331a; border:1px solid var(--gold); border-radius:14px; padding:14px; box-shadow:0 12px 34px #000b; color:var(--ivory);}
   /* El aviso "gira el teléfono" ya no se usa: en vertical hay layout propio.
      El nodo sigue en el HTML pero no se muestra nunca. */

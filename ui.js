@@ -12,7 +12,7 @@ const $=s=>document.querySelector(s);
 const SCREENS=['liveSetup','liveGame','liveResult','simDeal','simGame','simResult','simBulk'];
 function show(id){SCREENS.forEach(s=>document.getElementById(s).classList.toggle('hidden',s!==id));window.scrollTo(0,0);}
 // la mesa es la pantalla de entrada y de salida: volver = mesa vacía (idle)
-function goTable(){GS=null;simIdle();show('simGame');}
+function goTable(){analisis=null;partidaAbierta=null;GS=null;simIdle();show('simGame');}
 document.querySelectorAll('[data-mesa]').forEach(b=>b.onclick=goTable);
 document.querySelectorAll('[data-simdeal]').forEach(b=>b.onclick=()=>{simDealInit();show('simDeal');});
 $("#tbLive").onclick=()=>{liveRestart();show('liveSetup');};
@@ -377,7 +377,8 @@ function renderBand(id,pos,ctx){
   });
   if(pos===0){
     el.appendChild(wrap);
-    if(seat===0&&sistemas[0]!=="ninguno"){const c=document.createElement("div");c.innerHTML=conmutadorPensada();el.appendChild(c.firstChild);}
+    if(enAnalisis()){const c=document.createElement("div");c.innerHTML=barraCursor();if(c.firstChild)el.appendChild(c.firstChild);}
+    if(seat===0&&sistemas[0]!=="ninguno"&&!enAnalisis()){const c=document.createElement("div");c.innerHTML=conmutadorPensada();el.appendChild(c.firstChild);}
     el.appendChild(lab);
   }else{el.appendChild(lab);el.appendChild(wrap);}
 }
@@ -410,7 +411,13 @@ function simChoose(k,sides){
     document.querySelectorAll("#dpanel button[data-s]").forEach(b=>b.onclick=()=>{clearPanel();simDo(k,b.dataset.s);});
   }else simDo(k,GS.ends===null?"inicio":sides[0]);
 }
-function simDo(k,side){sugeridaK=null;simPush();const p=GS.current;
+function simDo(k,side){
+  if(enAnalisis()){
+    const t=analisis.partida.jugadas.length;
+    if(analisis.n<t){ ofrecerVariante(k,side); return; }
+    analisisSalir();                       // jugar en la ultima posicion sigue la partida
+  }
+  sugeridaK=null;simPush();const p=GS.current;
   const pen=(p===0&&pensadaForzada)?pensadaForzada:calcularPensada(p,k,side);
   // veredicto/comentario quedan preparados para anotar partidas; aun sin interfaz
   GS.hist.push({jugador:p,ficha:k,punta:GS.ends===null?null:side,pensada:pen,veredicto:null,comentario:null});
@@ -514,7 +521,13 @@ document.addEventListener("click",ev=>{
 },true);
 document.addEventListener("pointerdown",dragEmpezar);
 
-function simPass(){sugeridaK=null;simPush();GS.hist.push({jugador:GS.current,paso:true,pensada:null,veredicto:null,comentario:null});GS.log.push(`${ROLE[GS.current]} se pasa`);GS.passes++;simNext();}
+function simPass(){
+  if(enAnalisis()){
+    const t=analisis.partida.jugadas.length;
+    if(analisis.n<t){ ofrecerVariante(null,null); return; }
+    analisisSalir();
+  }
+  sugeridaK=null;simPush();GS.hist.push({jugador:GS.current,paso:true,pensada:null,veredicto:null,comentario:null});GS.log.push(`${ROLE[GS.current]} se pasa`);GS.passes++;simNext();}
 function simAIMove(silent){
   if(!GS||GS.over)return;const cur=GS.current;const moves=aiBestMovesDeep(GS.hands,GS.ends,cur,GS.passes);
   if(!silent)simPush();else GS.history.push(simSnap());
@@ -975,6 +988,17 @@ function runBulkDeal(N){
    La conversion vive en partida.js (puro). Aqui solo el pegamento con la UI
    y el almacen en localStorage bajo la clave partidas_v1. */
 const CLAVE_PARTIDAS="partidas_v1";
+/* writeText devuelve una promesa: sin catch, un fallo (sin foco, sin permiso,
+   navegador viejo) sale como rechazo no capturado. Siempre queda el textarea. */
+function alPortapapeles(txt){
+  try{
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(txt).catch(()=>{});
+      return true;
+    }
+  }catch(e){}
+  return false;
+}
 let partidaAbierta=null;          // {id,titulo,etiquetas,notas} de la que esta cargada
 
 function nuevoId(){return "p"+Date.now().toString(36)+Math.floor(performance.now()%1000).toString(36);}
@@ -1030,8 +1054,7 @@ $("#tbCopiar").onclick=()=>{
   const p=partidaActual();
   if(!p||!p.jugadas.length){toast("No hay partida que copiar");return;}
   const txt=aTexto(p);
-  let copiado=false;
-  try{ if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt);copiado=true;} }catch(e){}
+  const copiado=alPortapapeles(txt);
   dpanel(`<div class="ovcard" style="max-height:82vh;overflow:auto">
     <div class="center" style="margin-bottom:6px"><b>📋 Texto de la partida</b></div>
     <div class="muted" style="font-size:.72rem;margin-bottom:6px">${copiado?"Copiado al portapapeles. ":""}Si no se copió, selecciona y copia a mano:</div>
@@ -1099,8 +1122,10 @@ function cargarPartida(p){
   });
 
   partidaAbierta={id:p.id||nuevoId(),titulo:p.titulo||"",etiquetas:(p.etiquetas||[]).slice(),notas:p.notas||""};
+  if(!p.variante_de) analisis={partida:JSON.parse(JSON.stringify(p)),n:p.jugadas.length};
+  else analisis=null;              // una variante se abre para seguir jugando
   clearPanel();show('simGame');simRender();
-  toast(`Cargada: ${p.titulo||"partida"} (${p.jugadas.length} jugadas)`);
+  toast(`Cargada: ${p.titulo||"partida"} (${p.jugadas.length} jugadas)`+(analisis?" · modo análisis":""));
 }
 
 /* ---- biblioteca ---- */
@@ -1158,7 +1183,7 @@ function panelBiblioteca(){
   document.querySelectorAll("#dpanel [data-txt]").forEach(b=>b.onclick=()=>{
     const e=dame(b.dataset.txt); if(!e)return;
     const txt=aTexto(e.partida);
-    try{navigator.clipboard&&navigator.clipboard.writeText(txt);}catch(x){}
+    alPortapapeles(txt);
     dpanel(`<div class="ovcard" style="max-height:82vh;overflow:auto">
       <div class="center" style="margin-bottom:6px"><b>📋 ${e.titulo||"Partida"}</b></div>
       <textarea id="txtPartida" class="txtpartida" readonly>${txt.replace(/</g,"&lt;")}</textarea>
@@ -1208,6 +1233,247 @@ function panelDatosPartida(){
 
 $("#tbBiblio").onclick=panelBiblioteca;
 $("#tbDatos").onclick=panelDatosPartida;
+
+/* ---- modo analisis: cursor, anotacion y resumen ----
+   Al abrir o pegar una partida se entra en modo analisis: el cursor recorre
+   las jugadas sin borrar nada. Jugar desde una posicion que no es la ultima
+   no modifica la partida: se ofrece duplicarla truncada como variante. */
+let analisis=null;      // {partida, n} o null cuando se juega normal
+
+function enAnalisis(){return !!analisis;}
+function analisisAbrir(p,n){
+  analisis={partida:JSON.parse(JSON.stringify(p)),n:(n===undefined?p.jugadas.length:n)};
+  analisisPintar();
+}
+function analisisSalir(){analisis=null;}
+
+// monta GS con la posicion del cursor (solo para pintar y para Mano/Sugerir/Prob)
+function analisisPintar(){
+  const p=analisis.partida, pos=posicionEn(p,analisis.n);
+  [0,1,2,3].forEach(i=>{sistemas[i]=pos.sistemas[i]||"ninguno";});
+  simStarter=pos.salidor; simDealMode=p.modo==="vivo"?"en vivo":"guardada";
+  GS={hands:["S","E","N","O"].map(L=>new Set(pos.manos[L]||[])),
+      ends:null,sequence:[],current:pos.current,passes:pos.passes,over:false,
+      history:[],log:[],hist:pos.hist.slice()};
+  pos.hist.filter(h=>!h.paso).forEach(h=>{placeOnBoard(GS,h.ficha,GS.ends===null?"inicio":(h.punta||"D"));});
+  GS.lastKey=(pos.hist.filter(h=>!h.paso).slice(-1)[0]||{}).ficha||null;
+  GS.log=pos.hist.map(h=>h.paso?`${ROLE[h.jugador]} se pasa`
+    :`${ROLE[h.jugador]} juega ${h.ficha}${h.punta==="I"?" → izq":h.punta==="D"?" → der":""}${h.pensada?" · "+h.pensada:""}`);
+  GS.initial=simSnap();
+  show('simGame');simRender();
+}
+function analisisIr(n){
+  if(!analisis)return;
+  analisis.n=Math.max(0,Math.min(n,analisis.partida.jugadas.length));
+  analisisPintar();
+}
+
+/* barra del cursor, encima de tu mano */
+function barraCursor(){
+  if(!enAnalisis())return "";
+  const t=analisis.partida.jugadas.length;
+  return `<div class="cursorbar">
+    <button class="tb b-rew" data-cur="0">⏮</button>
+    <button class="tb b-back" data-cur="${analisis.n-1}">◀</button>
+    <span class="curnum">jugada <b>${analisis.n}</b> de ${t}</span>
+    <button class="tb b-back" data-cur="${analisis.n+1}">▶</button>
+    <button class="tb b-rew" data-cur="${t}">⏭</button>
+    <button class="tb b-copiar" id="curHist">📜 Historial</button>
+  </div>`;
+}
+document.addEventListener("click",ev=>{
+  const b=ev.target.closest("[data-cur]");
+  if(b){analisisIr(+b.dataset.cur);return;}
+  if(ev.target.closest("#curHist")){panelHistorial();return;}
+});
+
+/* ---- historial navegable y anotable ---- */
+const ICONO={correcta:"✓",dudosa:"?",error:"✗"};
+function panelHistorial(){
+  if(!enAnalisis()){toast("Solo en modo análisis");return;}
+  const p=analisis.partida;
+  const filas=p.jugadas.map(j=>{
+    const marca=j.veredicto?`<b class="vd v-${j.veredicto}">${ICONO[j.veredicto]}</b>`:"";
+    const com=j.comentario?`<span title="${j.comentario.replace(/"/g,"'")}">💬</span>`:"";
+    const txt=j.pase?"pasa":`${j.ficha}${j.lado?" "+(j.lado==="I"?"izq":"der"):""}${j.pensada?" · "+j.pensada:""}`;
+    return `<div class="row histrow${analisis.n===j.n?" aqui":""}" data-jug="${j.n}">
+      <span>${j.n}. <b>${j.jugador}</b> ${txt}</span><span>${marca} ${com}</span></div>`;
+  }).join("");
+  dpanel(`<div class="ovcard" style="max-height:82vh;overflow:auto">
+    <div class="center" style="margin-bottom:6px"><b>📜 Historial</b></div>
+    <div class="muted" style="font-size:.7rem;margin-bottom:4px">Toca una jugada para ir a ella y anotarla.</div>
+    <div class="probpanel">${filas||'<div class="muted">Sin jugadas.</div>'}</div>
+    <div class="btnrow grow" style="margin-top:8px">
+      <button class="btn ghost" id="verResumen">📊 Resumen</button>
+      <button class="btn ghost" onclick="clearPanel()">Cerrar</button></div></div>`);
+  document.querySelectorAll("#dpanel [data-jug]").forEach(el=>el.onclick=()=>{
+    analisisIr(+el.dataset.jug); panelJugada(+el.dataset.jug);
+  });
+  $("#verResumen").onclick=panelResumen;
+}
+
+/* ficha de anotacion de una jugada */
+function panelJugada(n){
+  const p=analisis.partida, j=p.jugadas[n-1];
+  if(!j){clearPanel();return;}
+  const seat=SEAT_DE(j.jugador);
+  // que habria sugerido el propio jugador, con lo que el sabia
+  let sug=null, est=null;
+  try{ est=estadoPara(p,n-1,j.jugador); if(est) sug=sugerirJugada(est); }catch(e){}
+  // y la IA con informacion completa, solo si se conocen las cuatro manos
+  let ia=null;
+  const completas=["S","E","N","O"].every(L=>Array.isArray(p.manos[L]));
+  if(completas&&!j.pase){
+    try{
+      const pos=posicionEn(p,n-1);
+      const manos=["S","E","N","O"].map(L=>new Set(pos.manos[L]));
+      const mv=aiBestMovesDeep(manos,pos.ends,seat,pos.passes);
+      if(mv.length)ia={k:mv[0].k,side:mv[0].side};
+    }catch(e){}
+  }
+  const jugado=j.pase?null:j.ficha;
+  const difiere=sug&&jugado&&sug.recomendada.ficha!==jugado;
+  const bot=(v,txt)=>`<button class="btn ${j.veredicto===v?"gold":"ghost"}" data-vd="${v===null?"":v}">${txt}</button>`;
+  dpanel(`<div class="ovcard" style="max-height:82vh;overflow:auto">
+    <div class="center" style="margin-bottom:4px"><b>Jugada ${n} · ${j.jugador}</b></div>
+    <div class="center" style="margin-bottom:6px">${j.pase?'<span class="muted">pasa</span>'
+      :tileHTML(kt(j.ficha)[0],kt(j.ficha)[1],"md")+`<div class="muted" style="font-size:.7rem">${j.lado==="I"?"por la izquierda":j.lado==="D"?"por la derecha":"salida"}${j.pensada?" · "+j.pensada:""}</div>`}</div>
+    <div class="probpanel">
+      <div class="muted" style="font-size:.72rem;margin-bottom:4px">Veredicto (lo pones tú):</div>
+      <div class="btnrow grow">${bot("correcta","✓ correcta")}${bot("dudosa","? dudosa")}${bot("error","✗ error")}</div>
+      <div class="btnrow grow" style="margin-top:6px">${bot(null,"sin veredicto")}</div>
+      <label class="fld">Comentario</label>
+      <textarea id="jComent" class="txtpartida" style="min-height:60px">${(j.comentario||"").replace(/</g,"&lt;")}</textarea>
+    </div>
+    <div class="probpanel" style="margin-top:8px">
+      <div class="muted" style="font-size:.72rem;margin-bottom:4px">Sugerir aquí (solo con lo que ${j.jugador} sabía):</div>
+      ${!est?'<div class="muted">No se conoce su mano.</div>'
+        :!sug?'<div class="muted">Sin jugada posible.</div>'
+        :`<div class="row"><span><b>${sug.recomendada.ficha}</b> ${sug.recomendada.punta==="I"?"izq":sug.recomendada.punta==="D"?"der":"salida"}</span><span class="muted">${sug.confianza}</span></div>`+
+          sug.razones.map(r=>`<div class="muted" style="font-size:.7rem">· ${r.texto} <i>${r.principio}</i></div>`).join("")}
+      ${difiere?`<div class="difiere">Sugerir habría jugado <b>${sug.recomendada.ficha}</b> por la ${sug.recomendada.punta==="I"?"izquierda":"derecha"} · tú jugaste ${jugado}</div>`:""}
+    </div>
+    ${ia?`<div class="probpanel" style="margin-top:8px">
+      <div class="muted" style="font-size:.72rem">IA aquí (ve las cuatro manos):</div>
+      <div><b>${ia.k}</b> <span class="muted">${ia.side==="I"?"izq":ia.side==="D"?"der":"salida"}</span>${ia.k===jugado?' <span class="muted">— coincide</span>':""}</div>
+    </div>`:(completas?"":`<div class="muted" style="font-size:.7rem;margin-top:6px">IA aquí no disponible: no se conocen las cuatro manos.</div>`)}
+    <div class="btnrow grow" style="margin-top:8px">
+      <button class="btn gold" id="jGuardar">Guardar anotación</button>
+      <button class="btn ghost" id="jVolver">← Historial</button>
+    </div>
+    <div class="btnrow grow" style="margin-top:6px">
+      <button class="btn blue" id="jProbar">🔀 Probar desde aquí</button>
+    </div></div>`);
+  document.querySelectorAll("#dpanel [data-vd]").forEach(b=>b.onclick=()=>{
+    j.veredicto=b.dataset.vd||null; panelJugada(n);
+  });
+  $("#jGuardar").onclick=()=>{ j.comentario=$("#jComent").value; guardarAnalisis(); panelHistorial(); };
+  $("#jVolver").onclick=()=>{ j.comentario=$("#jComent").value; panelHistorial(); };
+  $("#jProbar").onclick=()=>probarDesdeAqui(n);
+}
+function SEAT_DE(L){return {S:0,E:1,N:2,O:3}[L];}
+
+/* persistencia de las anotaciones en la entrada de la biblioteca */
+function guardarAnalisis(){
+  if(!analisis)return;
+  const lista=leerBiblioteca(), i=lista.findIndex(x=>x.id===analisis.partida.id);
+  if(i<0)return;
+  lista[i].partida=JSON.parse(JSON.stringify(analisis.partida));
+  guardarBiblioteca(lista); toast("Anotación guardada");
+}
+
+/* jugar desde una posicion intermedia no altera la partida guardada */
+function ofrecerVariante(k,side){
+  const n=analisis.n, t=analisis.partida.jugadas.length;
+  dpanel(`<div class="ovcard">
+    <div class="center" style="margin-bottom:6px"><b>Estás en la jugada ${n} de ${t}</b></div>
+    <div class="muted" style="font-size:.74rem">Retroceder no borra nada: la partida guardada se queda como está.
+      Si quieres seguir por otro camino desde aquí, se crea una variante aparte.</div>
+    <div class="btnrow grow" style="margin-top:10px">
+      <button class="btn gold" id="varSi">🔀 Probar desde aquí</button>
+      <button class="btn ghost" id="varFin">⏭ Ir al final</button>
+    </div>
+    <div class="btnrow grow" style="margin-top:6px"><button class="btn ghost" onclick="clearPanel()">Cancelar</button></div>
+  </div>`);
+  $("#varSi").onclick=()=>{ probarDesdeAqui(n); if(k)simDo(k,side); };
+  $("#varFin").onclick=()=>{ analisisIr(t); clearPanel(); };
+}
+
+/* ---- probar desde aqui ---- */
+function probarDesdeAqui(n){
+  const v=truncar(analisis.partida,n,{id:nuevoId(),fecha:ahoraISO()});
+  const lista=leerBiblioteca();
+  lista.push({id:v.id,titulo:v.titulo,fecha:v.fecha,etiquetas:v.etiquetas||[],
+              modo:v.modo,jugadas:v.jugadas.length,partida:v});
+  guardarBiblioteca(lista);
+  analisisSalir();
+  cargarPartida(v);
+  toast("Variante creada desde la jugada "+n);
+}
+
+/* ---- resumen del analisis ---- */
+function panelResumen(){
+  if(!enAnalisis()){toast("Solo en modo análisis");return;}
+  const p=analisis.partida;
+  const cuenta={}; ["S","E","N","O"].forEach(L=>cuenta[L]={correcta:0,dudosa:0,error:0,total:0});
+  const difs=[];
+  p.jugadas.forEach(j=>{
+    cuenta[j.jugador].total++;
+    if(j.veredicto)cuenta[j.jugador][j.veredicto]++;
+    if(j.pase)return;
+    let s=null; try{const e=estadoPara(p,j.n-1,j.jugador); if(e)s=sugerirJugada(e);}catch(x){}
+    if(s&&s.recomendada.ficha!==j.ficha)
+      difs.push({n:j.n,jugador:j.jugador,jugado:j.ficha,sugerido:s.recomendada.ficha,
+                 punta:s.recomendada.punta,veredicto:j.veredicto||null});
+  });
+  const filas=["S","E","N","O"].map(L=>`<div class="row"><span><b>${L}</b> <span class="muted">(${cuenta[L].total})</span></span>
+    <span><b class="v-correcta">✓ ${cuenta[L].correcta}</b> · <b class="v-dudosa">? ${cuenta[L].dudosa}</b> · <b class="v-error">✗ ${cuenta[L].error}</b></span></div>`).join("");
+  const listaDif=difs.length?difs.map(d=>`<div class="row" data-jug="${d.n}"><span>${d.n}. <b>${d.jugador}</b> jugó ${d.jugado}</span><span class="muted">Sugerir: ${d.sugerido} ${d.punta==="I"?"izq":"der"}</span></div>`).join("")
+    :`<div class="muted">Ninguna: coincide en todas (o no se conocen las manos).</div>`;
+  dpanel(`<div class="ovcard" style="max-height:82vh;overflow:auto">
+    <div class="center" style="margin-bottom:6px"><b>📊 Resumen del análisis</b></div>
+    <div class="probpanel"><div class="muted" style="font-size:.72rem;margin-bottom:4px">Veredictos por jugador:</div>${filas}</div>
+    <div class="probpanel" style="margin-top:8px">
+      <div class="muted" style="font-size:.72rem;margin-bottom:4px">Difieren de Sugerir (${difs.length}):</div>${listaDif}</div>
+    <div class="btnrow grow" style="margin-top:8px">
+      <button class="btn blue" id="expPos">📤 Exportar posiciones</button>
+      <button class="btn ghost" id="resVolver">← Historial</button></div>
+    <div class="btnrow grow" style="margin-top:6px"><button class="btn ghost" onclick="clearPanel()">Cerrar</button></div>
+    </div>`);
+  document.querySelectorAll("#dpanel [data-jug]").forEach(el=>el.onclick=()=>{
+    analisisIr(+el.dataset.jug); panelJugada(+el.dataset.jug);});
+  $("#resVolver").onclick=panelHistorial;
+  $("#expPos").onclick=()=>exportarPosiciones(p);
+}
+
+/* semilla del corpus de calibracion */
+function exportarPosiciones(p){
+  const out=[];
+  p.jugadas.forEach(j=>{
+    if(!j.veredicto&&!j.comentario)return;          // solo las anotadas
+    let estado=null,sug=null;
+    try{ estado=estadoPara(p,j.n-1,j.jugador); if(estado)sug=sugerirJugada(estado); }catch(e){}
+    out.push({
+      partida:p.id||null, titulo:p.titulo||"", n:j.n, jugador:j.jugador,
+      estado:estado,
+      jugado:j.pase?{pase:true}:{ficha:j.ficha,lado:j.lado,pensada:j.pensada||null},
+      sugerido:sug?{ficha:sug.recomendada.ficha,punta:sug.recomendada.punta,
+                    confianza:sug.confianza,razones:sug.razones}:null,
+      veredicto:j.veredicto||null, comentario:j.comentario||"",
+    });
+  });
+  const txt=JSON.stringify(out,null,2);
+  alPortapapeles(txt);
+  dpanel(`<div class="ovcard" style="max-height:82vh;overflow:auto">
+    <div class="center" style="margin-bottom:6px"><b>📤 Posiciones anotadas (${out.length})</b></div>
+    <div class="muted" style="font-size:.7rem;margin-bottom:6px">JSON con el estado legítimo de cada jugada anotada, lo jugado, lo sugerido y tu veredicto.</div>
+    <textarea id="txtPartida" class="txtpartida" readonly>${txt.replace(/</g,"&lt;")}</textarea>
+    <div class="btnrow grow" style="margin-top:8px">
+      <button class="btn ghost" id="expVolver">← Resumen</button>
+      <button class="btn ghost" onclick="clearPanel()">Cerrar</button></div></div>`);
+  const ta=$("#txtPartida"); if(ta){ta.focus();ta.select();}
+  $("#expVolver").onclick=panelResumen;
+}
 
 // arranque: entra directo a la mesa, vacía hasta que se reparta (Al Azar / Reparto)
 buildPicker();buildOwnerGrid();

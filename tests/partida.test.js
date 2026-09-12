@@ -173,6 +173,65 @@ const ordena = p => { const c = P.limpiar(p); ASI.forEach(a => { if (c.manos[a])
 eq("desdeEstado reconstruye el reparto completo", ordena(ida), ordena(base));
 t("y lo reconstruido vuelve a ser valido", P.validar(ida).ok, JSON.stringify(P.validar(ida).errores));
 
+console.log("\n--- posicionEn en varias n ---");
+const p0 = P.posicionEn(base, 0);
+eq("n=0 es el reparto: mesa vacia", p0.ends, null);
+eq("n=0: nadie ha jugado", p0.hist.length, 0);
+eq("n=0: las cuatro manos con 7", ASI.map(L => p0.manos[L].length), [7, 7, 7, 7]);
+eq("n=0: le toca al salidor", p0.current, 0);
+
+const mitad = Math.floor(JUGADAS.length / 2);
+const pm = P.posicionEn(base, mitad);
+eq("n=mitad: " + mitad + " jugadas", pm.hist.length, mitad);
+const jugadasHasta = JUGADAS.slice(0, mitad).filter(j => !j.pase).length;
+eq("n=mitad: fichas en la mesa", pm.secuencia.length, jugadasHasta);
+eq("n=mitad: quedan 28 - jugadas", ASI.reduce((a, L) => a + pm.manos[L].length, 0), 28 - jugadasHasta);
+t("n=mitad: hay puntas", Array.isArray(pm.ends) && pm.ends.length === 2, JSON.stringify(pm.ends));
+
+const pf = P.posicionEn(base, JUGADAS.length);
+eq("n=final coincide con aEstado", P.limpiar(pf), P.limpiar(P.aEstado(base)));
+eq("n mayor que el total se recorta", P.posicionEn(base, 99).n, JUGADAS.length);
+eq("n negativa se recorta a 0", P.posicionEn(base, -3).n, 0);
+
+console.log("\n--- estadoPara solo da informacion legitima ---");
+const ePara = P.estadoPara(base, mitad, "S");
+t("devuelve algo para S", !!ePara);
+eq("yo = 0", ePara.yo, 0);
+eq("su mano es la suya en esa posicion", ePara.miMano, pm.manos.S);
+eq("solo las claves previstas", Object.keys(ePara).sort(),
+  ["ends", "miMano", "pases", "pasesSeguidos", "salida", "salidor", "secuencia", "sistemas", "yo"]);
+const serializado = JSON.stringify(ePara);
+const enMesa = base.jugadas.filter(j => !j.pase).slice(0, mitad).map(j => j.ficha);
+const ajenasOcultas = ["E", "N", "O"].reduce((a, L) => a.concat(pm.manos[L]), [])
+  .filter(f => enMesa.indexOf(f) < 0 && pm.manos.S.indexOf(f) < 0);
+t("no se cuela ninguna ficha ajena (" + ajenasOcultas.length + " comprobadas)",
+  ajenasOcultas.every(f => serializado.indexOf('"' + f + '"') < 0),
+  "se colaron: " + ajenasOcultas.filter(f => serializado.indexOf('"' + f + '"') >= 0).join(" "));
+t("la secuencia lleva las pensadas", ePara.secuencia.some(x => x.pensada),
+  JSON.stringify(ePara.secuencia.map(x => x.pensada)));
+eq("la salida con su marca", ePara.salida.ficha, base.jugadas[0].ficha);
+
+const vivoP = P.desdeTexto([
+  "# Partida: en vivo", "Modo: vivo",
+  "Manos: S 6-6 6-1 5-5 " + "·" + " E ? " + "·" + " N ? " + "·" + " O ?",
+  "Sale: S", "1. S 6-6",
+].join("\n"));
+t("en modo vivo, S si tiene estado", !!P.estadoPara(vivoP, 1, "S"));
+eq("y E devuelve null (mano desconocida)", P.estadoPara(vivoP, 1, "E"), null);
+eq("N tambien null", P.estadoPara(vivoP, 1, "N"), null);
+
+console.log("\n--- probar desde aqui (truncar) ---");
+const variante = P.truncar(base, mitad, { id: "p-variante-1" });
+eq("se queda con las n primeras", variante.jugadas.length, mitad);
+eq("renumeradas desde 1", variante.jugadas.map(j => j.n), Array.from({ length: mitad }, (_, i) => i + 1));
+eq("apunta al original", variante.variante_de, { id: "p-demo-1", n: mitad });
+t("el titulo lo dice", /variante desde la jugada /.test(variante.titulo), variante.titulo);
+t("no arrastra el resultado", variante.resultado === undefined && variante.marcador === undefined);
+t("sigue siendo valida", P.validar(variante).ok, JSON.stringify(P.validar(variante).errores));
+t("el original no se toca", base.jugadas.length === JUGADAS.length && base.variante_de === undefined);
+eq("variante_de sobrevive texto->objeto",
+  P.limpiar(P.desdeTexto(P.aTexto(variante))).variante_de, variante.variante_de);
+
 console.log("\n================ TEXTO DE EJEMPLO (partida corta) ================");
 const corta = P.desdeTexto([
   "# Partida: Llave del 6",

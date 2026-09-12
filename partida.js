@@ -85,16 +85,16 @@ function desdeEstado(estado, opciones) {
   return p;
 }
 
-/* ---------- de partida a estado cargable ---------- */
+/* ---------- navegar la partida ---------- */
 
-/* Devuelve { modo, manos, hist, ends, secuencia, pases, current, passes,
-   salidor, sistemas, over } listo para que la UI monte GS o LS. Lanza si la
-   secuencia no es legal. */
-function aEstado(partida) {
-  const v = validar(partida);
-  if (!v.ok) { const e = new Error(v.errores[0].texto); e.errores = v.errores; throw e; }
+/* posicionEn(partida, n) -> el estado de la mesa tras las n primeras jugadas.
+   n = 0 es el reparto, n = jugadas.length la posicion final. Puro. */
+function posicionEn(partida, n) {
+  const total = (partida.jugadas || []).length;
+  const corte = Math.max(0, Math.min(n === undefined ? total : n, total));
+  const hechas = partida.jugadas.slice(0, corte);
 
-  const jug = partida.jugadas.map(j => j.pase
+  const jug = hechas.map(j => j.pase
     ? { jugador: asiento(j.jugador), paso: true }
     : { jugador: asiento(j.jugador), ficha: j.ficha, punta: j.lado || undefined });
   const mesa = _reconstruir(jug);
@@ -102,43 +102,95 @@ function aEstado(partida) {
   // la marca viaja con la jugada; reconstruirMesa no la inventa
   let i = 0;
   mesa.secuencia.forEach(sq => {
-    while (i < partida.jugadas.length && partida.jugadas[i].pase) i++;
-    if (i < partida.jugadas.length) {
-      sq.pensada = partida.jugadas[i].pensada || null;
-      sq.veredicto = partida.jugadas[i].veredicto || null;
+    while (i < hechas.length && hechas[i].pase) i++;
+    if (i < hechas.length) {
+      sq.pensada = hechas[i].pensada || null;
+      sq.veredicto = hechas[i].veredicto || null;
       i++;
     }
   });
 
+  // manos restantes (null las que no se conocen)
   const manos = {};
   ASIENTOS.forEach((L, p) => {
     if (partida.manos[L] === null || partida.manos[L] === undefined) { manos[L] = null; return; }
-    const jugadas = partida.jugadas.filter(j => !j.pase && asiento(j.jugador) === p).map(j => norm(j.ficha));
     const quedan = partida.manos[L].map(norm);
-    jugadas.forEach(f => { const k = quedan.indexOf(f); if (k >= 0) quedan.splice(k, 1); });
+    hechas.filter(j => !j.pase && asiento(j.jugador) === p).forEach(j => {
+      const k = quedan.indexOf(norm(j.ficha));
+      if (k >= 0) quedan.splice(k, 1);
+    });
     manos[L] = quedan;
   });
 
   const sistemas = {};
   ASIENTOS.forEach((L, p) => { sistemas[p] = (partida.jugadores[L] || {}).sistema || "ninguno"; });
 
-  const hist = partida.jugadas.map(j => j.pase
-    ? { jugador: asiento(j.jugador), paso: true, pensada: null, veredicto: null, comentario: null }
-    : { jugador: asiento(j.jugador), ficha: j.ficha, punta: j.lado || null,
+  const hist = hechas.map(j => j.pase
+    ? { jugador: asiento(j.jugador), paso: true, pensada: null, veredicto: j.veredicto || null, comentario: j.comentario || null }
+    : { jugador: asiento(j.jugador), ficha: norm(j.ficha), punta: j.lado || null,
         pensada: j.pensada || null, veredicto: j.veredicto || null, comentario: j.comentario || null });
 
-  // a quien le toca: el siguiente del ultimo que actuo
-  const ultimo = partida.jugadas.length ? asiento(partida.jugadas[partida.jugadas.length - 1].jugador) : asiento(partida.salidor);
-  const current = partida.jugadas.length ? (ultimo + 1) % 4 : asiento(partida.salidor);
+  const ultimo = hechas.length ? asiento(hechas[hechas.length - 1].jugador) : null;
+  const current = ultimo === null ? asiento(partida.salidor) : (ultimo + 1) % 4;
   let passes = 0;
-  for (let k = partida.jugadas.length - 1; k >= 0 && partida.jugadas[k].pase; k--) passes++;
+  for (let k = hechas.length - 1; k >= 0 && hechas[k].pase; k--) passes++;
 
   return {
-    modo: partida.modo, manos: manos, hist: hist, ends: mesa.ends,
+    n: corte, total: total, modo: partida.modo,
+    manos: manos, hist: hist, ends: mesa.ends,
     secuencia: mesa.secuencia, pases: mesa.pases,
     current: current, passes: passes, salidor: asiento(partida.salidor),
     sistemas: sistemas, over: false,
+    siguiente: corte < total ? partida.jugadas[corte] : null,
   };
+}
+
+/* estadoPara(partida, n, jugador) -> la entrada de sugerirJugada para ese
+   jugador en esa posicion, SOLO con lo que el sabe: su mano, la mesa, la
+   secuencia con sus marcas, los pases, quien salio y con que, y los sistemas.
+   Nunca incluye manos ajenas. Devuelve null si su mano no se conoce. */
+function estadoPara(partida, n, jugador) {
+  const p = typeof jugador === "number" ? jugador : asiento(jugador);
+  if (p === undefined || p === null) return null;
+  const pos = posicionEn(partida, n);
+  const miMano = pos.manos[letra(p)];
+  if (miMano === null || miMano === undefined) return null;
+
+  const primera = (partida.jugadas || []).find(j => !j.pase) || null;
+  return {
+    yo: p,
+    miMano: miMano.slice(),
+    ends: pos.ends,
+    secuencia: pos.secuencia,
+    pases: pos.pases,
+    salidor: asiento(partida.salidor),
+    salida: primera ? { ficha: norm(primera.ficha), jugador: asiento(primera.jugador),
+                        pensada: primera.pensada || null } : null,
+    sistemas: pos.sistemas,
+    pasesSeguidos: pos.passes,
+  };
+}
+
+/* truncar(partida, n, extra) -> copia con las n primeras jugadas y la marca
+   variante_de, para "probar desde aqui" sin tocar el original. */
+function truncar(partida, n, extra) {
+  const c = JSON.parse(JSON.stringify(partida));
+  const total = c.jugadas.length;
+  const corte = Math.max(0, Math.min(n === undefined ? total : n, total));
+  c.jugadas = c.jugadas.slice(0, corte).map((j, i) => { j.n = i + 1; return j; });
+  c.variante_de = { id: partida.id || null, n: corte };
+  c.titulo = (partida.titulo || "(sin titulo)") + " — variante desde la jugada " + corte;
+  delete c.resultado; delete c.marcador;
+  return Object.assign(c, extra || {});
+}
+
+/* ---------- de partida a estado cargable ---------- */
+
+/* Estado completo (ultima jugada). Lanza si la secuencia no es legal. */
+function aEstado(partida) {
+  const v = validar(partida);
+  if (!v.ok) { const e = new Error(v.errores[0].texto); e.errores = v.errores; throw e; }
+  return posicionEn(partida, (partida.jugadas || []).length);
 }
 
 /* ---------- validacion ---------- */
@@ -247,6 +299,7 @@ function aTexto(partida) {
     L.push(s);
   });
 
+  if (partida.variante_de) L.push("Variante de: " + (partida.variante_de.id || "?") + " en la jugada " + partida.variante_de.n);
   if (partida.resultado) {
     const r = partida.resultado;
     L.push("Resultado: " + (r.tranca ? "tranca, " : "") +
@@ -313,6 +366,9 @@ function desdeTexto(texto) {
       const sn = /sn\s+(-?\d+)/i.exec(linea), eo = /eo\s+(-?\d+)/i.exec(linea);
       if (sn && eo) p.marcador = { SN: +sn[1], EO: +eo[1] };
       return;
+    }
+    if ((m = /^variante\s+de\s*:\s*(\S+)\s+en\s+la\s+jugada\s+(\d+)/i.exec(linea))) {
+      p.variante_de = { id: m[1] === "?" ? null : m[1], n: +m[2] }; return;
     }
     if (/^resultado\s*:/i.test(linea)) {
       const r = { ganador: null, puntos: 0, tranca: /tranca/i.test(linea) };
@@ -390,6 +446,7 @@ function limpiar(partida) {
 }
 
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { desdeEstado, aEstado, validar, aTexto, desdeTexto, limpiar, normalizar,
+  module.exports = { desdeEstado, aEstado, posicionEn, estadoPara, truncar,
+                     validar, aTexto, desdeTexto, limpiar, normalizar,
                      ASIENTOS, SEAT, VERSION };
 }
