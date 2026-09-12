@@ -971,6 +971,244 @@ function runBulkDeal(N){
   $("#bulkOut").innerHTML=h;
 }
 
+/* ---- partidas: copiar / pegar y biblioteca local ----
+   La conversion vive en partida.js (puro). Aqui solo el pegamento con la UI
+   y el almacen en localStorage bajo la clave partidas_v1. */
+const CLAVE_PARTIDAS="partidas_v1";
+let partidaAbierta=null;          // {id,titulo,etiquetas,notas} de la que esta cargada
+
+function nuevoId(){return "p"+Date.now().toString(36)+Math.floor(performance.now()%1000).toString(36);}
+function ahoraISO(){try{return new Date().toISOString();}catch(e){return "";}}
+function tituloPorDefecto(){try{return new Date().toLocaleString();}catch(e){return "Partida";}}
+
+function leerBiblioteca(){
+  let lista=[];
+  try{lista=JSON.parse(localStorage.getItem(CLAVE_PARTIDAS)||"[]");}catch(e){lista=[];}
+  if(!Array.isArray(lista))lista=[];
+  // migracion: el guardado unico anterior pasa a la lista, una sola vez
+  try{
+    if(!localStorage.getItem(CLAVE_PARTIDAS+"_migrado")){
+      const viejo=JSON.parse(localStorage.getItem("domino_saves_v1")||localStorage.getItem("domino_saves")||"[]");
+      (Array.isArray(viejo)?viejo:[]).forEach(s=>{
+        const pos=s.position||s.pos; if(!pos||!pos.hands)return;
+        lista.push({id:nuevoId(),titulo:s.name||"Importada",fecha:s.createdAt||s.ts||ahoraISO(),
+          etiquetas:["importada"],modo:"simulador",partida:partidaDesdePos(pos,s.name)});
+      });
+      localStorage.setItem(CLAVE_PARTIDAS+"_migrado","1");
+      if(viejo&&viejo.length)guardarBiblioteca(lista);
+    }
+  }catch(e){}
+  return lista;
+}
+function guardarBiblioteca(lista){
+  try{localStorage.setItem(CLAVE_PARTIDAS,JSON.stringify(lista));}catch(e){toast("No se pudo guardar");}
+}
+// convierte una "foto" del formato antiguo en una partida v1
+function partidaDesdePos(pos,titulo){
+  const est={hands:(pos.hands||[]).map(a=>new Set(a)),hist:[]};
+  return desdeEstado(est,{salidor:pos.starter||0,sistemas:{0:"ninguno",1:"ninguno",2:"ninguno",3:"ninguno"},
+    modo:"simulador",id:nuevoId(),titulo:titulo||"Importada",fecha:ahoraISO()});
+}
+
+/* ---- de la mesa actual a partida ---- */
+function partidaActual(extra){
+  const o=Object.assign({
+    salidor:simStarter===null?0:simStarter, sistemas:sistemas, modo:"simulador",
+    id:(partidaAbierta&&partidaAbierta.id)||nuevoId(),
+    titulo:(partidaAbierta&&partidaAbierta.titulo)||"",
+    etiquetas:(partidaAbierta&&partidaAbierta.etiquetas)||[],
+    notas:(partidaAbierta&&partidaAbierta.notas)||"",
+    fecha:ahoraISO(), autor:"",
+  },extra||{});
+  if(GS) return desdeEstado(GS,o);
+  if(LS) return desdeEstado(LS,Object.assign({},o,{modo:"vivo",salidor:liveStarter===null?0:liveStarter}));
+  return null;
+}
+
+/* ---- Copiar ---- */
+$("#tbCopiar").onclick=()=>{
+  const p=partidaActual();
+  if(!p||!p.jugadas.length){toast("No hay partida que copiar");return;}
+  const txt=aTexto(p);
+  let copiado=false;
+  try{ if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt);copiado=true;} }catch(e){}
+  dpanel(`<div class="ovcard" style="max-height:82vh;overflow:auto">
+    <div class="center" style="margin-bottom:6px"><b>📋 Texto de la partida</b></div>
+    <div class="muted" style="font-size:.72rem;margin-bottom:6px">${copiado?"Copiado al portapapeles. ":""}Si no se copió, selecciona y copia a mano:</div>
+    <textarea id="txtPartida" class="txtpartida" readonly>${txt.replace(/</g,"&lt;")}</textarea>
+    <button class="btn ghost" style="width:100%;margin-top:8px" onclick="clearPanel()">Cerrar</button>
+  </div>`);
+  const ta=$("#txtPartida"); if(ta){ta.focus();ta.select();}
+};
+
+/* ---- Pegar ---- */
+$("#tbPegar").onclick=()=>{
+  dpanel(`<div class="ovcard" style="max-height:82vh;overflow:auto">
+    <div class="center" style="margin-bottom:6px"><b>📥 Pegar partida</b></div>
+    <div class="muted" style="font-size:.72rem;margin-bottom:6px">Pega aquí el texto de una partida y pulsa Cargar.</div>
+    <textarea id="txtPegar" class="txtpartida" placeholder="# Partida: ..."></textarea>
+    <div id="pegarErr"></div>
+    <div class="btnrow grow" style="margin-top:8px">
+      <button class="btn gold" id="btnCargarTexto">Cargar</button>
+      <button class="btn ghost" onclick="clearPanel()">Cerrar</button>
+    </div></div>`);
+  $("#btnCargarTexto").onclick=()=>{
+    const p=desdeTexto($("#txtPegar").value);
+    const errs=(p._errores||[]).concat(validar(p).errores||[]);
+    if(errs.length){
+      $("#pegarErr").innerHTML=`<div class="probpanel" style="margin-top:8px">
+        <div class="muted" style="font-size:.72rem;margin-bottom:4px">No pude cargarla:</div>`+
+        errs.slice(0,6).map(e=>`<div class="row"><span>${e.texto}</span><span class="muted">${e.linea?"línea "+e.linea:""}</span></div>`).join("")+
+        `</div>`;
+      return;
+    }
+    cargarPartida(p);
+  };
+};
+
+/* ---- cargar una partida en la mesa, en su ultima jugada ----
+   Se reproduce jugada a jugada desde el reparto: asi la pila de deshacer
+   queda completa y Atras recorre la partida hacia atras de verdad. */
+function cargarPartida(p){
+  let est;
+  try{ est=aEstado(p); }catch(e){ toast("Partida inválida"); return; }
+  [0,1,2,3].forEach(i=>{ sistemas[i]=est.sistemas[i]||"ninguno"; });
+  simStarter=est.salidor; simDealMode=p.modo==="vivo"?"en vivo":"guardada";
+  owner={}; ["S","E","N","O"].forEach((L,i)=>{ (p.manos[L]||[]).forEach(k=>{owner[k]=i;}); });
+
+  // arranca en el reparto, con las manos completas
+  GS={hands:["S","E","N","O"].map(L=>new Set((p.manos[L]||[]).map(k=>{const t=kt(k);return key(t[0],t[1]);}))),
+      ends:null,sequence:[],current:est.salidor,passes:0,over:false,history:[],log:[],hist:[]};
+  GS.initial=simSnap();
+
+  est.hist.forEach(h=>{
+    GS.history.push(simSnap());            // foto antes de cada jugada: eso es Atras
+    if(h.paso){
+      GS.hist.push({jugador:h.jugador,paso:true,pensada:null,veredicto:null,comentario:null});
+      GS.log.push(`${ROLE[h.jugador]} se pasa`); GS.passes++;
+    }else{
+      const lado=GS.ends===null?"inicio":(h.punta||"D");
+      GS.hist.push({jugador:h.jugador,ficha:h.ficha,punta:GS.ends===null?null:lado,
+                    pensada:h.pensada||null,veredicto:h.veredicto||null,comentario:h.comentario||null});
+      placeOnBoard(GS,h.ficha,lado);
+      GS.hands[h.jugador].delete(h.ficha);
+      GS.lastKey=h.ficha; GS.passes=0;
+      GS.log.push(`${ROLE[h.jugador]} juega ${h.ficha}${lado==="I"?" → izq":lado==="D"?" → der":""}${h.pensada?" · "+h.pensada:""}`);
+    }
+    GS.current=(h.jugador+1)%4;
+  });
+
+  partidaAbierta={id:p.id||nuevoId(),titulo:p.titulo||"",etiquetas:(p.etiquetas||[]).slice(),notas:p.notas||""};
+  clearPanel();show('simGame');simRender();
+  toast(`Cargada: ${p.titulo||"partida"} (${p.jugadas.length} jugadas)`);
+}
+
+/* ---- biblioteca ---- */
+function guardarEnBiblioteca(comoNueva){
+  const p=partidaActual();
+  if(!p||!p.jugadas.length){toast("No hay partida que guardar");return;}
+  const sugerido=(partidaAbierta&&partidaAbierta.titulo)||tituloPorDefecto();
+  let titulo;
+  try{ titulo=prompt("Título de la partida:",comoNueva?sugerido+" (copia)":sugerido); }catch(e){ titulo=sugerido; }
+  if(titulo===null)return;
+  titulo=(titulo||"").trim()||sugerido;
+  const lista=leerBiblioteca();
+  const id=(!comoNueva&&partidaAbierta&&partidaAbierta.id)||nuevoId();
+  p.id=id; p.titulo=titulo; p.fecha=ahoraISO();
+  const entrada={id:id,titulo:titulo,fecha:p.fecha,etiquetas:p.etiquetas||[],modo:p.modo,
+                 jugadas:p.jugadas.length,partida:p};
+  const i=lista.findIndex(x=>x.id===id);
+  if(i>=0&&!comoNueva)lista[i]=entrada; else lista.push(entrada);
+  guardarBiblioteca(lista);
+  partidaAbierta={id:id,titulo:titulo,etiquetas:p.etiquetas||[],notas:p.notas||""};
+  toast(i>=0&&!comoNueva?"Partida actualizada":"Partida guardada");
+}
+
+function panelBiblioteca(){
+  const lista=leerBiblioteca();
+  const filas=lista.slice().reverse().map(e=>{
+    let f=""; try{f=new Date(e.fecha).toLocaleString();}catch(x){f=e.fecha||"";}
+    return `<div class="saveitem" style="flex-wrap:wrap">
+      <div class="nm" title="${(e.titulo||"").replace(/"/g,"'")}">${e.titulo||"(sin título)"}</div>
+      <div class="dt">${f}</div>
+      <div class="muted" style="width:100%;font-size:.68rem">${e.jugadas||0} jugadas · ${e.modo||"simulador"}${(e.etiquetas&&e.etiquetas.length)?" · "+e.etiquetas.join(", "):""}</div>
+      <div class="btnrow" style="width:100%;margin-top:4px">
+        <button class="btn gold" data-abrir="${e.id}">Abrir</button>
+        <button class="btn ghost" data-dup="${e.id}">Duplicar</button>
+        <button class="btn ghost" data-txt="${e.id}">Copiar texto</button>
+        <button class="btn red" data-del="${e.id}">Borrar</button>
+      </div></div>`;
+  }).join("")||`<div class="muted center">Aún no hay partidas guardadas.</div>`;
+  dpanel(`<div class="ovcard" style="max-height:82vh;overflow:auto">
+    <div class="center" style="margin-bottom:6px"><b>📚 Biblioteca de partidas</b></div>
+    <div class="saves">${filas}</div>
+    <div class="btnrow grow" style="margin-top:8px">
+      <button class="btn ghost" id="btnGuardarAqui">Guardar la actual</button>
+      <button class="btn ghost" onclick="clearPanel()">Cerrar</button>
+    </div></div>`);
+  $("#btnGuardarAqui").onclick=()=>{guardarEnBiblioteca(false);panelBiblioteca();};
+  const dame=id=>leerBiblioteca().find(x=>x.id===id);
+  document.querySelectorAll("#dpanel [data-abrir]").forEach(b=>b.onclick=()=>{const e=dame(b.dataset.abrir);if(e)cargarPartida(e.partida);});
+  document.querySelectorAll("#dpanel [data-dup]").forEach(b=>b.onclick=()=>{
+    const e=dame(b.dataset.dup); if(!e)return;
+    const lista=leerBiblioteca(); const c=JSON.parse(JSON.stringify(e));
+    c.id=nuevoId(); c.titulo=(c.titulo||"")+" (copia)"; c.fecha=ahoraISO(); c.partida.id=c.id; c.partida.titulo=c.titulo;
+    lista.push(c); guardarBiblioteca(lista); panelBiblioteca(); toast("Duplicada");
+  });
+  document.querySelectorAll("#dpanel [data-txt]").forEach(b=>b.onclick=()=>{
+    const e=dame(b.dataset.txt); if(!e)return;
+    const txt=aTexto(e.partida);
+    try{navigator.clipboard&&navigator.clipboard.writeText(txt);}catch(x){}
+    dpanel(`<div class="ovcard" style="max-height:82vh;overflow:auto">
+      <div class="center" style="margin-bottom:6px"><b>📋 ${e.titulo||"Partida"}</b></div>
+      <textarea id="txtPartida" class="txtpartida" readonly>${txt.replace(/</g,"&lt;")}</textarea>
+      <div class="btnrow grow" style="margin-top:8px">
+        <button class="btn ghost" id="volverBib">← Biblioteca</button>
+        <button class="btn ghost" onclick="clearPanel()">Cerrar</button></div></div>`);
+    const ta=$("#txtPartida"); if(ta){ta.focus();ta.select();}
+    $("#volverBib").onclick=panelBiblioteca;
+  });
+  document.querySelectorAll("#dpanel [data-del]").forEach(b=>b.onclick=()=>{
+    const e=dame(b.dataset.del); if(!e)return;
+    let ok=false; try{ok=confirm(`¿Borrar "${e.titulo||"la partida"}"? No se puede deshacer.`);}catch(x){ok=true;}
+    if(!ok)return;
+    guardarBiblioteca(leerBiblioteca().filter(x=>x.id!==e.id)); panelBiblioteca(); toast("Borrada");
+  });
+}
+
+/* ---- datos de la partida abierta: titulo y etiquetas ---- */
+function panelDatosPartida(){
+  const a=partidaAbierta||{titulo:"",etiquetas:[],notas:""};
+  dpanel(`<div class="ovcard">
+    <div class="center" style="margin-bottom:6px"><b>🏷️ Datos de la partida</b></div>
+    <label class="fld">Título</label>
+    <input id="pTitulo" class="txtcampo" value="${(a.titulo||"").replace(/"/g,"&quot;")}">
+    <label class="fld">Etiquetas (separadas por comas)</label>
+    <input id="pEtiq" class="txtcampo" value="${(a.etiquetas||[]).join(", ").replace(/"/g,"&quot;")}">
+    <label class="fld">Notas</label>
+    <textarea id="pNotas" class="txtpartida" style="height:70px">${(a.notas||"").replace(/</g,"&lt;")}</textarea>
+    <div class="btnrow grow" style="margin-top:8px">
+      <button class="btn gold" id="pOk">Guardar datos</button>
+      <button class="btn ghost" onclick="clearPanel()">Cerrar</button>
+    </div></div>`);
+  $("#pOk").onclick=()=>{
+    partidaAbierta=Object.assign({id:(partidaAbierta&&partidaAbierta.id)||nuevoId()},{
+      titulo:$("#pTitulo").value.trim(),
+      etiquetas:$("#pEtiq").value.split(",").map(x=>x.trim()).filter(Boolean),
+      notas:$("#pNotas").value,
+    });
+    // si ya estaba en la biblioteca, actualiza tambien alli
+    const lista=leerBiblioteca(); const i=lista.findIndex(x=>x.id===partidaAbierta.id);
+    if(i>=0){lista[i].titulo=partidaAbierta.titulo;lista[i].etiquetas=partidaAbierta.etiquetas;
+      lista[i].partida.titulo=partidaAbierta.titulo;lista[i].partida.etiquetas=partidaAbierta.etiquetas;
+      lista[i].partida.notas=partidaAbierta.notas;guardarBiblioteca(lista);}
+    clearPanel();toast("Datos guardados");
+  };
+}
+
+$("#tbBiblio").onclick=panelBiblioteca;
+$("#tbDatos").onclick=panelDatosPartida;
+
 // arranque: entra directo a la mesa, vacía hasta que se reparta (Al Azar / Reparto)
 buildPicker();buildOwnerGrid();
 simIdle();show('simGame');

@@ -2,7 +2,7 @@
    Al subir una versión nueva, cambia 'domino-v1' por 'domino-v2', etc. */
 const CACHE = "domino-v7";
 const ASSETS = [
-  "./", "./index.html", "./styles.css", "./engine.js", "./conocimiento.js", "./ui.js",
+  "./", "./index.html", "./styles.css", "./engine.js", "./conocimiento.js", "./partida.js", "./ui.js",
   "./manifest.webmanifest",
   "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"
 ];
