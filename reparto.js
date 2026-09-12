@@ -88,7 +88,8 @@
 
     const lab = document.createElement("div");
     lab.className = "lbl";
-    lab.innerHTML = `${ROLE[asiento]} · ${POS_COMPASS[pos]} · <b>${n}</b>/7`;
+    lab.innerHTML = `${ROLE[asiento]} · ${POS_COMPASS[pos]} · <b>${n}</b>/7` +
+      (typeof selectorSistema === "function" ? "<br>" + selectorSistema(asiento) : "");
 
     const wrap = document.createElement("div");
     wrap.className = dePie ? "hand" : "handv";

@@ -269,6 +269,81 @@ function asesorSalida(misFichas) {
     repetibles.length ? "media" : "baja");
 }
 
+/* ================= LA PENSADA (CPP / SPP) =================
+   Marca que lleva cada ficha jugada y que informa sobre la punta donde se
+   juega. NUNCA se infiere: o la calcula el sistema del que juega, o la anota
+   quien la vio en la mesa. Los pases no llevan pensada.
+
+   · clasico: informa el numero que CASTIGA.
+   · moderno: informa el numero que GENERA.
+   Ver principios-domino.md §5.6. Las jugadas sucesivas (§5.4) y el sistema
+   combinado quedan fuera de esta version. */
+const SISTEMAS = ["ninguno", "clasico", "moderno"];
+
+/* pensadaPara({ficha, lado, numeroCastigado, numeroGenerado, mano, sistema, jugadas})
+   mano = mi mano ANTES de jugar (incluye la ficha). jugadas = lo ya puesto en
+   la mesa, para poder medir la fuerza adquirida. Devuelve "CPP", "SPP" o null. */
+function pensadaPara(o) {
+  const sistema = o.sistema || "ninguno";
+  if (sistema === "ninguno") return null;
+  const t = ficha(o.ficha);
+  if (!t) return null;
+  const mano = fichas(o.mano);
+  const cuantas = n => mano.filter(x => x[0] === n || x[1] === n).length;
+
+  // Salida: la decide el propio asesor de salida.
+  if (o.numeroCastigado === null || o.numeroCastigado === undefined) {
+    const sal = asesorSalida(o.mano);
+    return sal ? sal.pensada : null;
+  }
+
+  // Doble en partida: igual en los dos sistemas. CPP si me quedan mas de ese
+  // numero aparte del doble; SPP si el doble era lo unico que tenia.
+  if (t[0] === t[1]) return cuantas(t[0]) >= 2 ? "CPP" : "SPP";
+
+  // Mixta en clasico: informa el numero castigado.
+  if (sistema === "clasico") return cuantas(o.numeroCastigado) >= 2 ? "CPP" : "SPP";
+
+  // Mixta en moderno: informa el numero generado. SPP si tengo fuerza en el,
+  // contando la ficha que juego (de origen o adquirida).
+  const a = analizarMano(o.mano, o.jugadas || []);
+  return a.porPalo[o.numeroGenerado].fuerza ? "SPP" : "CPP";
+}
+
+/* Lee las pensadas ya anotadas y devuelve lo que declaran sus autores.
+   Solo lee de jugadores con sistema clasico o moderno y pensada no nula. */
+function leerPensadas(secuencia, sistemas) {
+  const vacio = () => ({ tieneMas: new Set(), noTiene: new Set(), fuerte: new Set() });
+  const por = { 0: vacio(), 1: vacio(), 2: vacio(), 3: vacio() };
+  const notas = [];
+  (secuencia || []).forEach(s => {
+    const sis = (sistemas || {})[s.jugador];
+    if (!sis || sis === "ninguno" || !s.pensada) return;
+    const t = ficha(s.ficha);
+    if (!t) return;
+    const gen = (s.genera || [])[0];
+    const doble = t[0] === t[1];
+    let n = null, dice = null;
+    if (doble) {
+      n = t[0];
+      if (s.pensada === "CPP") { por[s.jugador].tieneMas.add(n); dice = "tiene mas " + NOMBRE_PALO[n]; }
+      else { por[s.jugador].noTiene.add(n); dice = "no le quedan mas " + NOMBRE_PALO[n]; }
+    } else if (sis === "clasico") {
+      n = s.castiga;
+      if (n === null || n === undefined) return;
+      if (s.pensada === "CPP") { por[s.jugador].tieneMas.add(n); dice = "tiene mas " + NOMBRE_PALO[n]; }
+      else { por[s.jugador].noTiene.add(n); dice = "esa era su ultima de " + NOMBRE_PALO[n]; }
+    } else {                                   // moderno
+      n = gen;
+      if (n === null || n === undefined) return;
+      if (s.pensada === "SPP") { por[s.jugador].fuerte.add(n); dice = "tiene fuerza en " + NOMBRE_PALO[n]; }
+      else { dice = "sin fuerza en " + NOMBRE_PALO[n]; }
+    }
+    notas.push({ jugador: s.jugador, ficha: s.ficha, pensada: s.pensada, sistema: sis, numero: n, dice: dice });
+  });
+  return { por: por, notas: notas };
+}
+
 /* ================= SUGERIR JUGADA =================
    Principio de diseño: esta sugerencia razona SOLO con lo que el jugador sabe
    legítimamente —su mano, las puntas, quién jugó qué (qué castigó y qué
@@ -292,10 +367,17 @@ const PESOS_SUGERENCIA = {
   debajoSalidaCompanero:   5,   // P7/P8 por debajo de la salida del compañero
   generarFuerzaPropia:     6,   // P4  abre un palo donde tienes fuerza
   irseDeLaFalla:          26,   // sueltas la huerfana pudiendo soltar una con apoyo
+  frenoFuerzaEnFalla:    0.3,   // ...pero sin prisa si mandas en el numero por el que juegas
   gastarLlave:           -12,   // gastas tu unica ficha de un numero abierto teniendo otra jugada
   dobleSolo:              -4,   // te quedas con un doble sin acompañamiento
   seguroAmbasPuntas:      12,   // respuesta garantizada por las dos puntas
   puntosPorPip:         0.45,   // descargar peso cuando la mano se cierra
+  // Lecturas de pensada (§5.6). Moderadas: son señal, no certeza.
+  lecturaCompanero:        6,   // el compañero declaro tener ahi
+  lecturaCompaneroNo:     -6,   // el compañero declaro NO tener ahi
+  lecturaCastigarFuerte:   6,   // castigar el palo donde el contrario declaro fuerza
+  lecturaNoDarFuerte:     -6,   // no generarle el palo donde declaro fuerza
+  lecturaCubrirContrario:  6,   // cubrir el palo donde el contrario declaro tener mas
 };
 
 /* Rehace la mesa desde las jugadas en orden. Cada entrada es
@@ -377,6 +459,11 @@ function sugerirJugada(estado) {
   // Salir SPP indica fuerza en ese palo; salir CPP a un doble no indica nada.
   const paloSalidaFuerte = (salidorCompanero && sal.pensada === "SPP" && nums) ? nums : null;
 
+  // Lecturas de pensada: solo de quien juega con sistema y dejo marca.
+  const lectura = leerPensadas(secuencia, estado.sistemas || {});
+  const dice = (j, cual, n) => lectura.por[j] && lectura.por[j][cual].has(n);
+  const algunContrario = (cual, n) => contrarios.some(c => dice(c, cual, n));
+
   const analisis = analizarMano(estado.miMano, secuencia.map(s => s.ficha));
   const tengoFuerza = n => analisis.porPalo[n].fuerza;
   const misDelPalo = n => mano.filter(t => t[0] === n || t[1] === n).length;
@@ -455,6 +542,24 @@ function sugerirJugada(estado) {
     if (salidorCompanero && refSalida !== null && (m.genera < refSalida || m.castiga < refSalida))
       suma(P.debajoSalidaCompanero, "va por debajo del " + refSalida + " con el que salio tu compañero", "P7/P8");
 
+    // Lecturas de pensada (informacion legitima: la marca esta en la mesa)
+    if (dice(companero, "tieneMas", m.genera) || dice(companero, "fuerte", m.genera))
+      suma(P.lecturaCompanero, "tu compañero marco " + NOMBRE_PALO[m.genera] + ": ahi tiene juego", "pensada");
+    else if (dice(companero, "noTiene", m.genera))
+      suma(P.lecturaCompaneroNo, "tu compañero marco que no le quedan " + NOMBRE_PALO[m.genera], "pensada");
+    // Dejar correr tambien aqui: si la ficha con la que castigaria es mi llave,
+    // no la gasto. Con mas motivo si el contrario marco fuerza en ese numero:
+    // la va a volver a mandar y me quedo sin con que responder.
+    if (algunContrario("fuerte", m.castiga)) {
+      if (llave) razones.push({ peso: 0, principio: "dejar correr",
+        texto: "un contrario marco fuerza en " + NOMBRE_PALO[m.castiga] + ", pero esa es tu unica ficha del palo: guardala" });
+      else suma(P.lecturaCastigarFuerte, "castiga " + NOMBRE_PALO[m.castiga] + ", donde un contrario marco fuerza", "pensada");
+    }
+    if (algunContrario("fuerte", m.genera))
+      suma(P.lecturaNoDarFuerte, "le sirve " + NOMBRE_PALO[m.genera] + ", donde un contrario marco fuerza", "pensada");
+    if (algunContrario("tieneMas", m.castiga) && !llave)
+      suma(P.lecturaCubrirContrario, "cubre " + NOMBRE_PALO[m.castiga] + ", que un contrario marco tener", "pensada");
+
     // P4 - indicar lo que tienes
     if (tengoFuerza(m.genera))
       suma(P.generarFuerzaPropia, "abre " + NOMBRE_PALO[m.genera] + ", donde tienes fuerza", "P4");
@@ -470,14 +575,22 @@ function sugerirJugada(estado) {
       suma(P.gastarLlave, "gasta tu llave del " + NOMBRE_PALO[ends.find(n => (m.t[0] === n || m.t[1] === n) && misDelPalo(n) === 1)] +
         ", la unica que te queda de ese numero", "llave");
 
-    // B - irse de la falla: soltar la huerfana pudiendo soltar una con apoyo por
-    // el mismo numero. Solo cuenta con la mano cerrandose: es lo que evita
-    // quedarse con ella de mingo al final.
-    if (mano.length <= 3 && !puedo(m.genera)) {
+    /* B - irse de la falla: soltar la huerfana pudiendo soltar, por el MISMO
+       numero, una que si tenga apoyo. Vale toda la mano, pero modulada:
+        · urgencia sube cuanto menos fichas quedan (curva cubica: con 3 o menos
+          es maxima; con 6 o 7 es casi nula, porque aun hay mano por delante);
+        · urgencia baja si tienes fuerza en el numero por el que juegas: vas a
+          volver a jugar por ahi y la huerfana puede esperar. */
+    if (!puedo(m.genera)) {
       const hermanas = legales.filter(o => o.castiga === m.castiga && o.ficha !== m.ficha);
-      if (hermanas.some(o => resto.some(t => t[0] === o.genera || t[1] === o.genera)))
-        suma(P.irseDeLaFalla, "se va de la falla: suelta el " + NOMBRE_PALO[m.genera] +
-          ", del que no tienes mas, y conserva el palo con apoyo", "falla");
+      if (hermanas.some(o => resto.some(t => t[0] === o.genera || t[1] === o.genera))) {
+        const urgencia = Math.min(1, Math.pow(Math.max(0, 8 - mano.length) / 5, 3));
+        const freno = tengoFuerza(m.castiga) ? P.frenoFuerzaEnFalla : 1;
+        const bono = +(P.irseDeLaFalla * urgencia * freno).toFixed(2);
+        if (bono) suma(bono, "se va de la falla: suelta el " + NOMBRE_PALO[m.genera] +
+          ", del que no tienes mas, y conserva el palo con apoyo" +
+          (freno < 1 ? " (sin prisa: mandas en " + NOMBRE_PALO[m.castiga] + ")" : ""), "falla");
+      }
     }
     if (resto.some(t => t[0] === t[1] && !resto.some(x => x !== t && (x[0] === t[0] || x[1] === t[0]))))
       suma(P.dobleSolo, "te deja un doble sin acompañamiento", "proteccion");
@@ -489,10 +602,27 @@ function sugerirJugada(estado) {
 
     razones.sort((a, b) => Math.abs(b.peso) - Math.abs(a.peso));
     return { ficha: m.ficha, punta: m.punta, castiga: m.castiga, genera: m.genera,
-             nuevas: m.nuevas, puntos: +puntos.toFixed(2), razones: razones };
-  }).sort((a, b) => b.puntos - a.puntos || (b.castiga + b.genera) - (a.castiga + a.genera));
+             t: m.t, nuevas: m.nuevas, puntos: +puntos.toFixed(2), razones: razones };
+  }).sort((a, b) => {
+    if (b.puntos !== a.puntos) return b.puntos - a.puntos;
+    // A igualdad de puntos decide el principio, no el numero por el numero:
+    // contra la salida del contrario, la ficha mas alta (P5); con la del
+    // compañero, la mas baja (P7).
+    const pa = a.t[0] + a.t[1], pb = b.t[0] + b.t[1];
+    if (salidorContrario && pa !== pb) return pb - pa;
+    if (salidorCompanero && pa !== pb) return pa - pb;
+    return (b.castiga + b.genera) - (a.castiga + a.genera);
+  });
 
   const mejor = evaluadas[0], segunda = evaluadas[1] || null;
+  let desempate = null;
+  if (segunda && segunda.puntos === mejor.puntos) {
+    const pm = mejor.t[0] + mejor.t[1], ps = segunda.t[0] + segunda.t[1];
+    if (salidorContrario && pm > ps) desempate = { principio: "P5",
+      texto: "empata con el " + segunda.ficha + ": contra la salida del contrario se juega la mas alta" };
+    else if (salidorCompanero && pm < ps) desempate = { principio: "P7",
+      texto: "empata con el " + segunda.ficha + ": con la salida de tu compañero se juega la mas baja" };
+  }
   const margen = segunda ? mejor.puntos - segunda.puntos : Infinity;
   const confianza = margen >= 8 ? "alta" : margen >= 3 ? "media" : "baja";
 
@@ -513,6 +643,8 @@ function sugerirJugada(estado) {
     razones: mejor.razones.filter(r => r.peso > 0).slice(0, 3),
     contras: mejor.razones.filter(r => r.peso < 0),
     confianza: confianza,
+    desempate: desempate,
+    lecturas: lectura.notas,
     porQueNo: porQueNo,
     alternativas: evaluadas.slice(1).map(m => ({ ficha: m.ficha, punta: m.punta,
       puntos: m.puntos, razones: m.razones.slice(0, 2) })),
@@ -522,6 +654,7 @@ function sugerirJugada(estado) {
 
 // Para poder probarlo con node fuera del navegador.
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { analizarMano, asesorSalida, sugerirJugada, reconstruirMesa, ficha,
+  module.exports = { analizarMano, asesorSalida, sugerirJugada, reconstruirMesa,
+                     pensadaPara, leerPensadas, SISTEMAS, ficha,
                      NOMBRE_PALO, ACOMP, PESOS_SUGERENCIA, PROB_DOBLES, PROB_FALLAS, FREQ_PALO };
 }

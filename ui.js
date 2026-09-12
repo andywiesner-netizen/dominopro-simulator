@@ -48,18 +48,20 @@ $("#seatPick").querySelectorAll("button").forEach(b=>b.onclick=()=>{
 $("#startBtn").onclick=()=>{
   const unseen=new Set(allTiles().map(t=>key(t[0],t[1])));liveSel.forEach(k=>unseen.delete(k));
   LS={hand:new Set(liveSel),ends:null,sequence:[],unseen,remaining:{1:7,2:7,3:7},
-      forbidden:{1:new Set(),2:new Set(),3:new Set()},current:liveStarter,passes:0,history:[],over:false};
+      forbidden:{1:new Set(),2:new Set(),3:new Set()},current:liveStarter,passes:0,history:[],over:false,hist:[]};
+  liveMarca=null;
   show('liveGame');liveRender();
 };
 function liveRestart(){liveSel=new Set();liveStarter=null;LS=null;$("#selCount").textContent="0";
   $("#seatPick").querySelectorAll("button").forEach(x=>x.classList.remove("sel"));$("#startBtn").disabled=true;buildPicker();}
 $("#undoBtn").onclick=()=>{if(!LS.history.length){toast("Nada que deshacer");return;}liveRestore(LS.history.pop());liveRender();};
 
-function liveSnap(){return JSON.stringify({hand:[...LS.hand],ends:LS.ends,sequence:LS.sequence,unseen:[...LS.unseen],
+let liveMarca=null;                       // CPP / SPP / null ("no vi") para la proxima jugada ajena
+function liveSnap(){return JSON.stringify({hand:[...LS.hand],ends:LS.ends,sequence:LS.sequence,unseen:[...LS.unseen],hist:(LS.hist||[]).slice(),
   remaining:{...LS.remaining},forbidden:{1:[...LS.forbidden[1]],2:[...LS.forbidden[2]],3:[...LS.forbidden[3]]},current:LS.current,passes:LS.passes,over:LS.over});}
 function livePush(){LS.history.push(liveSnap());if(LS.history.length>60)LS.history.shift();}
 function liveRestore(s){const o=JSON.parse(s);LS.hand=new Set(o.hand);LS.ends=o.ends;LS.sequence=o.sequence;LS.unseen=new Set(o.unseen);
-  LS.remaining=o.remaining;LS.forbidden={1:new Set(o.forbidden[1]),2:new Set(o.forbidden[2]),3:new Set(o.forbidden[3])};LS.current=o.current;LS.passes=o.passes;LS.over=o.over;}
+  LS.remaining=o.remaining;LS.forbidden={1:new Set(o.forbidden[1]),2:new Set(o.forbidden[2]),3:new Set(o.forbidden[3])};LS.current=o.current;LS.passes=o.passes;LS.over=o.over;LS.hist=o.hist||[];}
 
 function liveSuggest(numProb){
   const moves=legalMoves([...LS.hand],LS.ends);
@@ -105,8 +107,10 @@ function liveChoose(k,sides){
     box.querySelectorAll("button").forEach(b=>b.onclick=()=>livePlay(k,b.dataset.s));
   }else livePlay(k,LS.ends===null?"inicio":sides[0]);
 }
-function livePlay(k,side){livePush();placeOnBoard(LS,k,side);LS.unseen.delete(k);LS.hand.delete(k);LS.passes=0;toast(`Jugaste ${k}`);liveAfter();}
-function liveUserPass(had){livePush();if(had&&!confirm("Sí tienes jugada legal. ¿Seguro que pasas?")){LS.history.pop();return;}LS.passes++;liveAfter();}
+function livePlay(k,side){livePush();
+  (LS.hist=LS.hist||[]).push({jugador:0,ficha:k,punta:LS.ends===null?null:side,pensada:null,veredicto:null,comentario:null});
+  placeOnBoard(LS,k,side);LS.unseen.delete(k);LS.hand.delete(k);LS.passes=0;toast(`Jugaste ${k}`);liveAfter();}
+function liveUserPass(had){livePush();(LS.hist=LS.hist||[]).push({jugador:0,paso:true,pensada:null,veredicto:null,comentario:null});if(had&&!confirm("Sí tienes jugada legal. ¿Seguro que pasas?")){LS.history.pop();return;}LS.passes++;liveAfter();}
 function liveOtherTurn(p){
   $("#analysisCard").classList.add("hidden");const ac=$("#actionCard");
   ac.innerHTML=`<h2>¿Qué hizo ${ROLE[p]}?</h2><div class="muted">Toca la ficha que jugó, o “Se pasó”.</div>`;
@@ -115,7 +119,15 @@ function liveOtherTurn(p){
   fits.sort((a,b)=>pip(kt(b.k))-pip(kt(a.k)));
   const grid=document.createElement("div");grid.className="hand";grid.style.marginTop="8px";
   fits.forEach(f=>{const t=kt(f.k);const d=document.createElement("div");d.className="pick";d.innerHTML=tileHTML(t[0],t[1]);d.onclick=()=>liveChooseOther(p,f.k,f.sides);grid.appendChild(d);});
-  ac.appendChild(grid);const box=document.createElement("div");box.id="sideBox";ac.appendChild(box);
+  // ¿viste la pensada? Por defecto no: se anota null y no se inventa nada.
+  const mb=document.createElement("div");mb.className="btnrow grow";mb.style.marginTop="10px";
+  mb.innerHTML=`<div class="muted" style="width:100%;font-size:.75rem;margin-bottom:4px">¿Con qué pensada la jugó?</div>`+
+    ["CPP","SPP","no vi"].map(v=>{const val=(v==="no vi")?"":v;
+      return `<button class="btn ${((liveMarca||"")===val)?"gold":"ghost"}" data-marca="${val}" style="padding:7px 10px;font-size:.8rem">${v}</button>`;}).join("");
+  mb.querySelectorAll("[data-marca]").forEach(b=>b.onclick=()=>{liveMarca=b.dataset.marca||null;liveOtherTurn(p);});
+  ac.appendChild(mb);                 // primero la marca, luego se toca la ficha
+  ac.appendChild(grid);
+  const box=document.createElement("div");box.id="sideBox";ac.appendChild(box);
   const row=document.createElement("div");row.className="btnrow grow";row.style.marginTop="12px";
   const pb=document.createElement("button");pb.className="btn red";pb.textContent=`${ROLE[p]} se pasó`;pb.onclick=()=>liveOtherPass(p);
   row.appendChild(pb);ac.appendChild(row);
@@ -126,8 +138,12 @@ function liveChooseOther(p,k,sides){
     box.querySelectorAll("button").forEach(b=>b.onclick=()=>liveOtherPlay(p,k,b.dataset.s));
   }else liveOtherPlay(p,k,LS.ends===null?"inicio":sides[0]);
 }
-function liveOtherPlay(p,k,side){livePush();placeOnBoard(LS,k,side);LS.unseen.delete(k);LS.remaining[p]--;LS.passes=0;toast(`${ROLE[p]} jugó ${k}`);liveAfter();}
-function liveOtherPass(p){livePush();if(LS.ends!==null){LS.forbidden[p].add(LS.ends[0]);LS.forbidden[p].add(LS.ends[1]);}LS.passes++;toast(`${ROLE[p]} se pasó`);liveAfter();}
+function liveOtherPlay(p,k,side){livePush();
+  const cast=LS.ends===null?null:(side==="I"?LS.ends[0]:LS.ends[1]);
+  (LS.hist=LS.hist||[]).push({jugador:p,ficha:k,punta:LS.ends===null?null:side,castiga:cast,pensada:liveMarca,veredicto:null,comentario:null});
+  placeOnBoard(LS,k,side);LS.unseen.delete(k);LS.remaining[p]--;LS.passes=0;
+  toast(`${ROLE[p]} jugó ${k}${liveMarca?" · "+liveMarca:""}`);liveMarca=null;liveAfter();}
+function liveOtherPass(p){livePush();(LS.hist=LS.hist||[]).push({jugador:p,paso:true,pensada:null,veredicto:null,comentario:null});if(LS.ends!==null){LS.forbidden[p].add(LS.ends[0]);LS.forbidden[p].add(LS.ends[1]);}LS.passes++;toast(`${ROLE[p]} se pasó`);liveAfter();}
 function liveAfter(){
   if(LS.current===0&&LS.hand.size===0)return liveEnd("Te quedaste sin fichas 🎉",0);
   if(LS.current!==0&&LS.remaining[LS.current]===0)return liveEnd(`${ROLE[LS.current]} se quedó sin fichas`,LS.current);
@@ -320,7 +336,10 @@ function fillBoardChain(){
     r.tiles.forEach(o=>{
       const a=rtl?o.b:o.a, b=rtl?o.a:o.b;
       const jp=(key(o.a,o.b)===GS.lastKey)?" justplayed":"";
-      el.insertAdjacentHTML("beforeend",tileHTML(a,b,"sm"+(o.dbl?" vert":"")+jp));
+      let marca="";
+      if(jp){const u=(GS.hist||[]).filter(h=>!h.paso).slice(-1)[0];
+        if(u&&u.pensada)marca=`<span class="pmark">${u.pensada}</span>`;}
+      el.insertAdjacentHTML("beforeend",`<span class="pwrap">${tileHTML(a,b,"sm"+(o.dbl?" vert":"")+jp)}${marca}</span>`);
     });
     box.appendChild(el);
   });
@@ -356,7 +375,11 @@ function renderBand(id,pos,ctx){
     }
     wrap.appendChild(d);
   });
-  if(pos===0){el.appendChild(wrap);el.appendChild(lab);}else{el.appendChild(lab);el.appendChild(wrap);}
+  if(pos===0){
+    el.appendChild(wrap);
+    if(seat===0&&sistemas[0]!=="ninguno"){const c=document.createElement("div");c.innerHTML=conmutadorPensada();el.appendChild(c.firstChild);}
+    el.appendChild(lab);
+  }else{el.appendChild(lab);el.appendChild(wrap);}
 }
 function simIdle(){
   ["bandN","bandS","bandW","bandE"].forEach(id=>{const el=document.getElementById(id);if(!el)return;el.innerHTML="";el.classList.remove("active");});
@@ -387,7 +410,12 @@ function simChoose(k,sides){
     document.querySelectorAll("#dpanel button[data-s]").forEach(b=>b.onclick=()=>{clearPanel();simDo(k,b.dataset.s);});
   }else simDo(k,GS.ends===null?"inicio":sides[0]);
 }
-function simDo(k,side){sugeridaK=null;simPush();const p=GS.current;GS.hist.push({jugador:p,ficha:k,punta:GS.ends===null?null:side});placeOnBoard(GS,k,side);GS.hands[p].delete(k);GS.lastKey=k;GS.passes=0;GS.log.push(`${ROLE[p]} juega ${k}`);simNext();}
+function simDo(k,side){sugeridaK=null;simPush();const p=GS.current;
+  const pen=(p===0&&pensadaForzada)?pensadaForzada:calcularPensada(p,k,side);
+  // veredicto/comentario quedan preparados para anotar partidas; aun sin interfaz
+  GS.hist.push({jugador:p,ficha:k,punta:GS.ends===null?null:side,pensada:pen,veredicto:null,comentario:null});
+  if(p===0){avisoPensada(k,pen);pensadaForzada=null;}
+  placeOnBoard(GS,k,side);GS.hands[p].delete(k);GS.lastKey=k;GS.passes=0;GS.log.push(`${ROLE[p]} juega ${k}${side==="I"?" → izq":side==="D"?" → der":""}${pen?" · "+pen:""}`);simNext();}
 
 /* ---------- jugar arrastrando la ficha al tablero ----------
    Con eventos de puntero, no con el arrastre nativo de HTML: el nativo solo
@@ -486,12 +514,12 @@ document.addEventListener("click",ev=>{
 },true);
 document.addEventListener("pointerdown",dragEmpezar);
 
-function simPass(){sugeridaK=null;simPush();GS.hist.push({jugador:GS.current,paso:true});GS.log.push(`${ROLE[GS.current]} se pasa`);GS.passes++;simNext();}
+function simPass(){sugeridaK=null;simPush();GS.hist.push({jugador:GS.current,paso:true,pensada:null,veredicto:null,comentario:null});GS.log.push(`${ROLE[GS.current]} se pasa`);GS.passes++;simNext();}
 function simAIMove(silent){
   if(!GS||GS.over)return;const cur=GS.current;const moves=aiBestMovesDeep(GS.hands,GS.ends,cur,GS.passes);
   if(!silent)simPush();else GS.history.push(simSnap());
-  if(moves.length){const m=moves[0];GS.hist.push({jugador:cur,ficha:m.k,punta:GS.ends===null?null:m.side});placeOnBoard(GS,m.k,m.side);GS.hands[cur].delete(m.k);GS.lastKey=m.k;GS.passes=0;GS.log.push(`${ROLE[cur]} juega ${m.k}`);}
-  else{GS.hist.push({jugador:cur,paso:true});GS.passes++;GS.log.push(`${ROLE[cur]} se pasa`);}
+  if(moves.length){const m=moves[0];GS.hist.push({jugador:cur,ficha:m.k,punta:GS.ends===null?null:m.side,pensada:calcularPensada(cur,m.k,m.side),veredicto:null,comentario:null});placeOnBoard(GS,m.k,m.side);GS.hands[cur].delete(m.k);GS.lastKey=m.k;GS.passes=0;GS.log.push(`${ROLE[cur]} juega ${m.k}${m.side==="I"?" → izq":m.side==="D"?" → der":""}${GS.hist[GS.hist.length-1].pensada?" · "+GS.hist[GS.hist.length-1].pensada:""}`);}
+  else{GS.hist.push({jugador:cur,paso:true,pensada:null,veredicto:null,comentario:null});GS.passes++;GS.log.push(`${ROLE[cur]} se pasa`);}
   simNext(silent);
 }
 function simNext(silent){
@@ -556,8 +584,8 @@ window.addEventListener("message",e=>{
 });
 
 function askName(def){try{const n=prompt("Nombre de la foto:",def);return n===null?null:(n.trim()||def);}catch(e){return def;}}
-function posFromGame(){return {hands:GS.hands.map(s=>[...s]),ends:GS.ends?GS.ends.slice():null,sequence:GS.sequence.slice(),current:GS.current,passes:GS.passes,starter:simStarter,dealMode:simDealMode};}
-function posFromDeal(){return {hands:[0,1,2,3].map(p=>Object.keys(owner).filter(k=>owner[k]===p)),ends:null,sequence:[],current:simStarter,passes:0,starter:simStarter,dealMode:simDealMode};}
+function posFromGame(){return {hands:GS.hands.map(s=>[...s]),ends:GS.ends?GS.ends.slice():null,sequence:GS.sequence.slice(),current:GS.current,passes:GS.passes,starter:simStarter,dealMode:simDealMode,sistemas:Object.assign({},sistemas),hist:(GS.hist||[]).slice()};}
+function posFromDeal(){return {hands:[0,1,2,3].map(p=>Object.keys(owner).filter(k=>owner[k]===p)),ends:null,sequence:[],current:simStarter,passes:0,starter:simStarter,dealMode:simDealMode,sistemas:Object.assign({},sistemas)};}
 function nowISO(){try{return new Date().toISOString();}catch(e){return "";}}
 function buildItem(name,pos){
   const played=28-pos.hands.reduce((n,h)=>n+h.length,0);
@@ -589,8 +617,9 @@ async function renderSaves(targetId){
 }
 function loadPosition(pos){
   simStarter=pos.starter;simDealMode=pos.dealMode||"guardada";
+  if(pos.sistemas)[0,1,2,3].forEach(p2=>{if(pos.sistemas[p2])sistemas[p2]=pos.sistemas[p2];});
   GS={hands:pos.hands.map(a=>new Set(a)),ends:pos.ends?pos.ends.slice():null,sequence:pos.sequence.slice(),
-      current:pos.current,passes:pos.passes||0,over:false,history:[],log:[]};
+      current:pos.current,passes:pos.passes||0,over:false,history:[],log:[],hist:(pos.hist||[]).slice()};
   GS.initial=simSnap();
   clearPanel();show('simGame');simRender();toast("Mano cargada");
 }
@@ -712,6 +741,63 @@ $("#tbMano").onclick=()=>{
   dpanel(panelMano(analizarMano(mias,jugadas),saleSur?asesorSalida(mias):null));
 };
 
+/* ---- sistemas de pensada y registro de la marca ----
+   Cada asiento juega con 'ninguno' (por defecto), 'clasico' o 'moderno'. La
+   pensada NUNCA se infiere: la calcula el sistema de quien juega, o la anota
+   quien la vio. Se elige en el reparto y viaja con la partida. */
+let sistemas={0:"ninguno",1:"ninguno",2:"ninguno",3:"ninguno"};
+let pensadaForzada=null;                 // Auto / CPP / SPP para tu proxima jugada
+function jugadasEnMesa(){return (GS&&GS.sequence?GS.sequence:[]).map(t=>key(t[0],t[1]));}
+// Calcula la pensada de una jugada ANTES de ponerla en la mesa.
+function calcularPensada(p,k,side){
+  const cast=GS.ends===null?null:(side==="I"?GS.ends[0]:GS.ends[1]);
+  const t=kt(k); const gen=cast===null?null:(t[0]===cast?t[1]:t[0]);
+  return pensadaPara({ficha:k,lado:side,numeroCastigado:cast,numeroGenerado:gen,
+    mano:[...GS.hands[p]],sistema:sistemas[p],jugadas:jugadasEnMesa()});
+}
+function avisoPensada(k,pen){
+  if(!pen)return;
+  const sis=sistemas[0];
+  const t=kt(k), doble=t[0]===t[1];
+  const que=doble?"es doble":sis==="clasico"?"informa el número que castigas":"informa el número que generas";
+  toast(`Jugaste ${k} ${pen}: ${que} (${sis})`);
+}
+/* ---- selector de sistema en el reparto ---- */
+function selectorSistema(seat){
+  const op=SISTEMAS.map(x=>`<option value="${x}"${sistemas[seat]===x?" selected":""}>${x}</option>`).join("");
+  return `<select class="selsis" data-seat="${seat}" title="Sistema de pensada de ${ROLE[seat]}">${op}</select>`;
+}
+document.addEventListener("change",ev=>{
+  const sel=ev.target.closest(".selsis");
+  if(!sel)return;
+  sistemas[+sel.dataset.seat]=sel.value;
+  if(GS)simRender(); else simIdle();
+});
+/* ---- conmutador Auto / CPP / SPP junto a tu mano ---- */
+document.addEventListener("click",ev=>{
+  const b=ev.target.closest("[data-pensada]");
+  if(!b)return;
+  const v=b.dataset.pensada;
+  pensadaForzada=(v==="auto")?null:v;
+  simRender();
+});
+function conmutadorPensada(){
+  if(sistemas[0]==="ninguno")return "";
+  const uno=(v,txt)=>`<button class="tb ${((v==="auto")===(pensadaForzada===null))&&(v==="auto"||v===pensadaForzada)?"b-sug":"b-copiar"}" data-pensada="${v}" style="padding:3px 7px;font-size:.66rem">${txt}</button>`;
+  return `<div class="pensadabar">${uno("auto","Auto")}${uno("CPP","CPP")}${uno("SPP","SPP")}</div>`;
+}
+/* ---- lectura de pensadas para el panel de Sugerir ---- */
+function bloqueLecturas(lecturas){
+  if(!lecturas||!lecturas.length)return "";
+  const filas=lecturas.slice(-6).map(n=>
+    `<div class="row"><span>${ROLE[n.jugador]} jugó ${n.ficha} <b>${n.pensada}</b> <span class="muted">(${n.sistema})</span></span></div>
+     <div class="muted" style="font-size:.68rem;text-align:right">→ ${n.dice}</div>`).join("");
+  return `<div class="probpanel" style="margin-top:8px">
+    <div class="muted" style="font-size:.72rem;margin-bottom:4px">Lectura de pensadas:</div>${filas}
+    <div class="muted" style="font-size:.66rem;margin-top:4px">CPP = con pensada previa · SPP = sin pensada previa. En clásico la marca habla del número que castiga; en moderno, del que genera.</div>
+  </div>`;
+}
+
 /* ---- sugerir jugada con explicación ----
    El consejo sale de conocimiento.js, que solo mira lo que tú sabes: tu mano,
    las puntas, quién jugó qué y quién pasó. La IA (aiBestMovesDeep) ve las
@@ -721,20 +807,18 @@ function estadoParaSugerir(){
   if(!GS||GS.over) return null;
   const hist=GS.hist||[];
   let mesa; try{ mesa=reconstruirMesa(hist); }catch(e){ return null; }
+  // la marca viaja con la jugada: reconstruirMesa no la inventa, solo la copia
+  let i=0; mesa.secuencia.forEach(sq=>{ while(i<hist.length&&hist[i].paso)i++; if(i<hist.length)sq.pensada=hist[i++].pensada||null; });
   const primera=hist.find(h=>!h.paso);
   // La pensada de la salida solo se sabe de verdad si saliste TÚ: de la mano
   // ajena no puedes deducir el acompañamiento. Si no, va null (peso normal).
-  let pensada=null;
-  if(primera&&primera.jugador===0){
-    const mano0=Object.keys(owner).filter(k=>owner[k]===0);
-    const sal=asesorSalida(mano0);
-    if(sal&&sal.ficha===primera.ficha) pensada=sal.pensada;
-  }
+  // La pensada de la salida sale del historial: la marco quien la jugo.
+  const pensada=primera?(primera.pensada||null):null;
   return {
     yo:GS.current, miMano:[...GS.hands[GS.current]], ends:GS.ends,
     secuencia:mesa.secuencia, pases:mesa.pases, salidor:simStarter,
     salida:primera?{ficha:primera.ficha,jugador:primera.jugador,pensada:pensada}:null,
-    pasesSeguidos:GS.passes,
+    sistemas:sistemas, pasesSeguidos:GS.passes,
   };
 }
 function panelSugerir(s,ia){
@@ -770,6 +854,7 @@ function panelSugerir(s,ia){
     </div>
     ${s.porQueNo?`<div class="muted" style="font-size:.72rem;margin-top:6px">${s.porQueNo}</div>`:""}
     ${alts?`<div class="probpanel" style="margin-top:8px"><div class="muted" style="font-size:.72rem;margin-bottom:4px">Alternativas:</div>${alts}</div>`:""}
+    ${bloqueLecturas(s.lecturas)}
     ${bloqueIA}
     <button class="btn ghost" style="width:100%;margin-top:8px" onclick="clearPanel()">Cerrar</button>
   </div>`;

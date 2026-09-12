@@ -219,6 +219,14 @@
   #dcenter.dropI{background:linear-gradient(90deg, rgba(255,209,102,.26), rgba(255,209,102,.05) 50%, transparent 50%);}
   #dcenter.dropD{background:linear-gradient(270deg, rgba(255,209,102,.26), rgba(255,209,102,.05) 50%, transparent 50%);}
 
+  /* marca de pensada sobre la ultima ficha jugada */
+  .pwrap{position:relative; display:inline-flex;}
+  .pmark{position:absolute; top:-8px; right:-4px; background:var(--gold); color:#3a2c00;
+         font-size:.52rem; font-weight:800; border-radius:5px; padding:0 3px; letter-spacing:.3px;}
+  .pensadabar{display:flex; gap:4px; justify-content:center; margin-top:3px;}
+  .selsis{font-size:.6rem; padding:1px 3px; border-radius:6px; border:1px solid rgba(255,255,255,.25);
+          background:#0d2410; color:var(--ivory); margin-top:2px; max-width:88px;}
+
   .ovcard{background:#12331a; border:1px solid var(--gold); border-radius:14px; padding:14px; box-shadow:0 12px 34px #000b; color:var(--ivory);}
   /* El aviso "gira el teléfono" ya no se usa: en vertical hay layout propio.
      El nodo sigue en el HTML pero no se muestra nunca. */

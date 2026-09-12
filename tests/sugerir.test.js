@@ -70,7 +70,7 @@ for (const c of casos) {
   let ok = r && esp.includes(r.recomendada.ficha);
   if (ok && c.esperadoGenera !== undefined) ok = r.recomendada.genera === c.esperadoGenera;
   if (ok) aciertos++;
-  const decide = r && r.razones.length ? r.razones[0].principio : "-";
+  const decide = r && r.desempate ? r.desempate.principio+" (desempate)" : (r && r.razones.length ? r.razones[0].principio : "-");
   const gen = r ? " (gen " + r.recomendada.genera + ")" : "";
   console.log(c.n.padEnd(6) + " | " + c.mano.join(" ").padEnd(32) + " | " +
     esp.join("/").padEnd(10) + " | " + (r ? (r.recomendada.ficha + gen).padEnd(14) : "(nada)".padEnd(14)) +
