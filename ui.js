@@ -414,6 +414,7 @@ function simChoose(k,sides){
 function simDo(k,side){
   if(enAnalisis()){
     const t=analisis.partida.jugadas.length;
+    if(analisis.soloLectura){ ofrecerVariante(k,side); return; }
     if(analisis.n<t){ ofrecerVariante(k,side); return; }
     analisisSalir();                       // jugar en la ultima posicion sigue la partida
   }
@@ -524,6 +525,7 @@ document.addEventListener("pointerdown",dragEmpezar);
 function simPass(){
   if(enAnalisis()){
     const t=analisis.partida.jugadas.length;
+    if(analisis.soloLectura){ ofrecerVariante(null,null); return; }
     if(analisis.n<t){ ofrecerVariante(null,null); return; }
     analisisSalir();
   }
@@ -1279,12 +1281,14 @@ function barraCursor(){
     <button class="tb b-back" data-cur="${analisis.n+1}">▶</button>
     <button class="tb b-rew" data-cur="${t}">⏭</button>
     <button class="tb b-copiar" id="curHist">📜 Historial</button>
+    ${analisis.soloLectura?'<button class="tb b-user" id="curComp">🔒 compartida</button>':""}
   </div>`;
 }
 document.addEventListener("click",ev=>{
   const b=ev.target.closest("[data-cur]");
   if(b){analisisIr(+b.dataset.cur);return;}
   if(ev.target.closest("#curHist")){panelHistorial();return;}
+  if(ev.target.closest("#curComp")){panelCompartida();return;}
 });
 
 /* ---- historial navegable y anotable ---- */
@@ -1339,11 +1343,14 @@ function panelJugada(n){
     <div class="center" style="margin-bottom:6px">${j.pase?'<span class="muted">pasa</span>'
       :tileHTML(kt(j.ficha)[0],kt(j.ficha)[1],"md")+`<div class="muted" style="font-size:.7rem">${j.lado==="I"?"por la izquierda":j.lado==="D"?"por la derecha":"salida"}${j.pensada?" · "+j.pensada:""}</div>`}</div>
     <div class="probpanel">
-      <div class="muted" style="font-size:.72rem;margin-bottom:4px">Veredicto (lo pones tú):</div>
+      ${analisis.soloLectura
+        ? `<div class="row"><span class="muted">Veredicto</span><span>${j.veredicto?ICONO[j.veredicto]+" "+j.veredicto:"sin veredicto"}</span></div>`+
+          (j.comentario?`<div class="muted" style="font-size:.72rem;margin-top:4px">“${j.comentario.replace(/</g,"&lt;")}”</div>`:"")
+        : `<div class="muted" style="font-size:.72rem;margin-bottom:4px">Veredicto (lo pones tú):</div>
       <div class="btnrow grow">${bot("correcta","✓ correcta")}${bot("dudosa","? dudosa")}${bot("error","✗ error")}</div>
       <div class="btnrow grow" style="margin-top:6px">${bot(null,"sin veredicto")}</div>
       <label class="fld">Comentario</label>
-      <textarea id="jComent" class="txtpartida" style="min-height:60px">${(j.comentario||"").replace(/</g,"&lt;")}</textarea>
+      <textarea id="jComent" class="txtpartida" style="min-height:60px">${(j.comentario||"").replace(/</g,"&lt;")}</textarea>`}
     </div>
     <div class="probpanel" style="margin-top:8px">
       <div class="muted" style="font-size:.72rem;margin-bottom:4px">Sugerir aquí (solo con lo que ${j.jugador} sabía):</div>
@@ -1358,7 +1365,7 @@ function panelJugada(n){
       <div><b>${ia.k}</b> <span class="muted">${ia.side==="I"?"izq":ia.side==="D"?"der":"salida"}</span>${ia.k===jugado?' <span class="muted">— coincide</span>':""}</div>
     </div>`:(completas?"":`<div class="muted" style="font-size:.7rem;margin-top:6px">IA aquí no disponible: no se conocen las cuatro manos.</div>`)}
     <div class="btnrow grow" style="margin-top:8px">
-      <button class="btn gold" id="jGuardar">Guardar anotación</button>
+      ${analisis.soloLectura?"":'<button class="btn gold" id="jGuardar">Guardar anotación</button>'}
       <button class="btn ghost" id="jVolver">← Historial</button>
     </div>
     <div class="btnrow grow" style="margin-top:6px">
@@ -1367,8 +1374,8 @@ function panelJugada(n){
   document.querySelectorAll("#dpanel [data-vd]").forEach(b=>b.onclick=()=>{
     j.veredicto=b.dataset.vd||null; panelJugada(n);
   });
-  $("#jGuardar").onclick=()=>{ j.comentario=$("#jComent").value; guardarAnalisis(); panelHistorial(); };
-  $("#jVolver").onclick=()=>{ j.comentario=$("#jComent").value; panelHistorial(); };
+  const gb=$("#jGuardar"); if(gb) gb.onclick=()=>{ j.comentario=$("#jComent").value; guardarAnalisis(); panelHistorial(); };
+  $("#jVolver").onclick=()=>{ if($("#jComent")) j.comentario=$("#jComent").value; panelHistorial(); };
   $("#jProbar").onclick=()=>probarDesdeAqui(n);
 }
 function SEAT_DE(L){return {S:0,E:1,N:2,O:3}[L];}
@@ -1386,8 +1393,8 @@ function guardarAnalisis(){
 function ofrecerVariante(k,side){
   const n=analisis.n, t=analisis.partida.jugadas.length;
   dpanel(`<div class="ovcard">
-    <div class="center" style="margin-bottom:6px"><b>Estás en la jugada ${n} de ${t}</b></div>
-    <div class="muted" style="font-size:.74rem">Retroceder no borra nada: la partida guardada se queda como está.
+    <div class="center" style="margin-bottom:6px"><b>${analisis.soloLectura?"Partida compartida (solo lectura)":"Estás en la jugada "+n+" de "+t}</b></div>
+    <div class="muted" style="font-size:.74rem">${analisis.soloLectura?"No se puede jugar ni anotar sobre una partida que te han compartido.":"Retroceder no borra nada: la partida guardada se queda como está."}
       Si quieres seguir por otro camino desde aquí, se crea una variante aparte.</div>
     <div class="btnrow grow" style="margin-top:10px">
       <button class="btn gold" id="varSi">🔀 Probar desde aquí</button>
@@ -1475,9 +1482,139 @@ function exportarPosiciones(p){
   $("#expVolver").onclick=panelResumen;
 }
 
+/* ---- compartir por enlace y abrir una partida compartida ----
+   Todo el acceso a "la nube" pasa por nube.js. Hoy el enlace lleva la partida
+   dentro del fragmento; manana sera el backend y esta parte no cambia. */
+
+function kb(n){return (n/1024).toFixed(1).replace(".",",")+" KB";}
+
+$("#tbEnlace").onclick=async()=>{
+  const p=enAnalisis()?analisis.partida:partidaActual();
+  if(!p||!p.jugadas.length){toast("No hay partida que compartir");return;}
+  dpanel(`<div class="ovcard"><div class="muted center">Preparando el enlace…</div></div>`);
+  let r;
+  try{ r=await publicar(p); }catch(e){ toast("No pude generar el enlace"); clearPanel(); return; }
+  if(r.ok){ mostrarEnlace(r); return; }
+  // demasiado largo: nunca devolvemos en silencio una URL que el navegador corte
+  const sinCom=await publicar(p,{sinComentarios:true});
+  dpanel(`<div class="ovcard" style="max-height:82vh;overflow:auto">
+    <div class="center" style="margin-bottom:6px"><b>🔗 El enlace no cabe</b></div>
+    <div class="muted" style="font-size:.74rem">Ocupa ${r.tamano} caracteres y el límite seguro son ${r.limite}.
+      Algunos navegadores lo cortarían sin avisar, así que no te lo doy tal cual.</div>
+    <div class="btnrow grow" style="margin-top:10px">
+      <button class="btn gold" id="enSinCom">Sin comentarios de jugada (${sinCom.tamano} car.)</button>
+    </div>
+    <div class="btnrow grow" style="margin-top:6px">
+      <button class="btn blue" id="enTexto">Compartir el texto en su lugar</button>
+      <button class="btn ghost" onclick="clearPanel()">Cancelar</button>
+    </div></div>`);
+  $("#enSinCom").onclick=()=>{
+    if(!sinCom.ok){toast("Sigue sin caber: comparte el texto");return;}
+    mostrarEnlace(sinCom,"Sin los comentarios de jugada.");
+  };
+  $("#enTexto").onclick=()=>{clearPanel();$("#tbCopiar").click();};
+};
+
+function mostrarEnlace(r,nota){
+  const copiado=alPortapapeles(r.url);
+  dpanel(`<div class="ovcard" style="max-height:82vh;overflow:auto">
+    <div class="center" style="margin-bottom:6px"><b>🔗 Enlace de la partida</b></div>
+    <div class="muted" style="font-size:.72rem;margin-bottom:6px">
+      ${copiado?"Copiado al portapapeles. ":""}Si no se copió, selecciona y copia a mano:</div>
+    <textarea id="txtPartida" class="txtpartida" style="min-height:110px" readonly>${r.url}</textarea>
+    <div class="row" style="margin-top:6px"><span class="muted">Tamaño</span>
+      <span>${kb(r.tamano)} de ${kb(r.limite)}</span></div>
+    ${nota?`<div class="muted" style="font-size:.7rem">${nota}</div>`:""}
+    <div class="muted" style="font-size:.68rem;margin-top:6px">La partida viaja dentro del enlace, en la parte que el navegador no manda a ningún servidor.</div>
+    <button class="btn ghost" style="width:100%;margin-top:8px" onclick="clearPanel()">Cerrar</button>
+  </div>`);
+  const ta=$("#txtPartida"); if(ta){ta.focus();ta.select();}
+}
+
+/* ---- abrir una partida compartida (solo lectura) ---- */
+async function abrirDesdeEnlace(){
+  const h=location.hash||"";
+  if(h.indexOf("p=")<0)return false;
+  let p;
+  try{ p=await abrir(h); }
+  catch(e){
+    dpanel(`<div class="ovcard">
+      <div class="center" style="margin-bottom:6px"><b>No pude abrir el enlace</b></div>
+      <div class="muted" style="font-size:.74rem">${(e.message||"Enlace no válido").replace(/</g,"&lt;")}</div>
+      <div class="muted" style="font-size:.7rem;margin-top:6px">Puede haberse cortado al copiarlo. Pide que te lo manden otra vez, o usa 📥 Pegar con el texto de la partida.</div>
+      <button class="btn ghost" style="width:100%;margin-top:8px" onclick="clearPanel()">Seguir a la mesa</button>
+    </div>`);
+    return false;                       // la app arranca normal igualmente
+  }
+  compartidaAbrir(p);
+  return true;
+}
+
+function compartidaAbrir(p){
+  partidaAbierta={id:p.id||nuevoId(),titulo:p.titulo||"",etiquetas:(p.etiquetas||[]).slice(),notas:p.notas||""};
+  analisis={partida:JSON.parse(JSON.stringify(p)),n:p.jugadas.length,soloLectura:true};
+  analisisPintar();
+  panelCompartida();
+}
+
+function panelCompartida(){
+  const p=analisis.partida;
+  let f=""; try{f=p.fecha?new Date(p.fecha).toLocaleString():"";}catch(e){f=p.fecha||"";}
+  dpanel(`<div class="ovcard" style="max-height:82vh;overflow:auto">
+    <div class="solectura">Partida compartida · solo lectura</div>
+    <div class="center" style="margin:6px 0 2px"><b>${(p.titulo||"(sin título)").replace(/</g,"&lt;")}</b></div>
+    <div class="muted center" style="font-size:.72rem">${p.autor?p.autor+" · ":""}${f}${p.etiquetas&&p.etiquetas.length?" · "+p.etiquetas.join(", "):""}</div>
+    <div class="muted center" style="font-size:.7rem;margin-top:4px">${p.jugadas.length} jugadas · ${p.modo||"simulador"}</div>
+    ${p.notas?`<div class="probpanel" style="margin-top:8px"><div class="muted" style="font-size:.72rem">${p.notas.replace(/</g,"&lt;")}</div></div>`:""}
+    <div class="muted" style="font-size:.7rem;margin-top:8px">Puedes recorrerla con el cursor y usar 🔎 Mano, 💡 Sugerir, Prob y el resumen. Para anotarla o seguir jugando, guárdala o haz una variante.</div>
+    <div class="btnrow grow" style="margin-top:10px">
+      <button class="btn gold" id="cGuardar">Guardar en mi biblioteca</button>
+    </div>
+    <div class="btnrow grow" style="margin-top:6px">
+      <button class="btn blue" id="cVariante">🔀 Probar desde aquí</button>
+      <button class="btn ghost" onclick="clearPanel()">Ver la partida</button>
+    </div></div>`);
+  $("#cGuardar").onclick=guardarCompartida;
+  $("#cVariante").onclick=()=>probarDesdeAqui(analisis.n);
+}
+
+/* Copia la partida compartida a la biblioteca conservando id, autor y
+   anotaciones. Si ese id ya esta, pregunta antes de pisar nada. */
+function guardarCompartida(){
+  const p=JSON.parse(JSON.stringify(analisis.partida));
+  const lista=leerBiblioteca();
+  const i=lista.findIndex(x=>x.id===p.id);
+  const meter=(id)=>{
+    p.id=id;
+    const e={id:id,titulo:p.titulo||"(sin título)",fecha:p.fecha||ahoraISO(),
+             etiquetas:p.etiquetas||[],modo:p.modo,jugadas:p.jugadas.length,partida:p};
+    const k=lista.findIndex(x=>x.id===id);
+    if(k>=0)lista[k]=e; else lista.push(e);
+    guardarBiblioteca(lista);
+    analisis.soloLectura=false;       // ya es tuya: puedes anotarla
+    partidaAbierta={id:id,titulo:p.titulo||"",etiquetas:p.etiquetas||[],notas:p.notas||""};
+    analisisPintar(); clearPanel();
+    toast("Guardada en tu biblioteca");
+  };
+  if(i<0){meter(p.id||nuevoId());return;}
+  dpanel(`<div class="ovcard">
+    <div class="center" style="margin-bottom:6px"><b>Ya tienes esa partida</b></div>
+    <div class="muted" style="font-size:.74rem">"${(lista[i].titulo||"").replace(/</g,"&lt;")}" ya está en tu biblioteca con el mismo identificador.</div>
+    <div class="btnrow grow" style="margin-top:10px">
+      <button class="btn red" id="gRempl">Reemplazar</button>
+      <button class="btn gold" id="gDupl">Duplicar</button>
+    </div>
+    <div class="btnrow grow" style="margin-top:6px"><button class="btn ghost" onclick="clearPanel()">Cancelar</button></div>
+  </div>`);
+  $("#gRempl").onclick=()=>meter(p.id);
+  $("#gDupl").onclick=()=>{p.titulo=(p.titulo||"")+" (copia)";meter(nuevoId());};
+}
+
 // arranque: entra directo a la mesa, vacía hasta que se reparta (Al Azar / Reparto)
 buildPicker();buildOwnerGrid();
 simIdle();show('simGame');
+// si la app se abre con #p=..., manda la partida compartida
+try{ if(location.hash.indexOf("p=")>=0) abrirDesdeEnlace(); }catch(e){}
 
 // registro del service worker (para funcionar sin conexión / instalable)
 if("serviceWorker" in navigator){

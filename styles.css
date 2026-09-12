@@ -242,6 +242,10 @@
   .difiere{margin-top:6px; padding:5px 7px; border-radius:8px; font-size:.72rem;
            background:rgba(255,209,102,.14); border:1px solid rgba(255,209,102,.45);}
 
+  .solectura{background:rgba(255,209,102,.16); border:1px solid rgba(255,209,102,.5);
+             border-radius:8px; padding:4px 8px; font-size:.7rem; font-weight:800;
+             color:var(--gold); text-align:center;}
+
   .ovcard{background:#12331a; border:1px solid var(--gold); border-radius:14px; padding:14px; box-shadow:0 12px 34px #000b; color:var(--ivory);}
   /* El aviso "gira el teléfono" ya no se usa: en vertical hay layout propio.
      El nodo sigue en el HTML pero no se muestra nunca. */
