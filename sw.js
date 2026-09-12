@@ -1,5 +1,5 @@
-/* Service worker: cachea la app para que funcione sin conexión.
-   Al subir una versión nueva, cambia 'domino-v1' por 'domino-v2', etc. */
+﻿/* Service worker: cachea la app para que funcione sin conexiÃ³n.
+   Al subir una versiÃ³n nueva, cambia 'domino-v3' por 'domino-v3', etc. */
 const CACHE = "domino-v7";
 const ASSETS = [
   "./", "./index.html", "./styles.css", "./engine.js", "./conocimiento.js", "./partida.js", "./nube.js", "./ui.js",
@@ -17,7 +17,7 @@ self.addEventListener("activate", e => {
 self.addEventListener("fetch", e => {
   const req = e.request;
   if (req.method !== "GET") return;
-  // stale-while-revalidate: sirve rápido desde caché y actualiza en segundo plano
+  // stale-while-revalidate: sirve rÃ¡pido desde cachÃ© y actualiza en segundo plano
   e.respondWith(caches.open(CACHE).then(async c => {
     const cached = await c.match(req);
     const net = fetch(req).then(res => { try { c.put(req, res.clone()); } catch (_) {} return res; })
