@@ -601,9 +601,32 @@ const Store={
   }
 };
 let memSaves=[];
-// el host puede enviar la config por postMessage (para iframes)
+/* El host puede enviar la config por postMessage (para iframes), pero SOLO se
+   acepta de un remitente conocido. Sin este filtro, cualquier pagina que meta
+   el simulador en un iframe suyo podria apuntarlo a su propio servidor y
+   quedarse con cada posicion que guardes.
+
+   Se acepta:
+     - el propio origen del simulador, que cubre el caso recomendado de
+       INTEGRATION.md (dominopro lo sirve desde /simulator/: mismo origen);
+     - los de ORIGENES_HOST, para cuando dominopro este en otro dominio.
+   Esa lista va escrita aqui a proposito: si se pudiera declarar desde fuera
+   (por URL o en el propio mensaje) no filtraria nada. */
+const ORIGENES_HOST=[];     // vacia a proposito: el simulador va por su cuenta
+                            // y no acepta configuracion de nadie de fuera.
+                            // Para un iframe entre dominios distintos, aqui
+                            // iria el del host, p.ej. "https://dominopro.org".
+function origenDeConfianza(o){
+  try{ return o===window.location.origin||ORIGENES_HOST.indexOf(o)>=0; }catch(e){ return false; }
+}
 window.addEventListener("message",e=>{
-  const d=e.data;if(d&&d.type==="DOMINOPRO_CONFIG"&&d.apiBase){Store.cfg={apiBase:d.apiBase,token:d.token};toast("Conectado a dominopro");}
+  const d=e.data;
+  if(!d||d.type!=="DOMINOPRO_CONFIG"||!d.apiBase)return;
+  if(!origenDeConfianza(e.origin)){
+    console.warn("Simulador: descarto una configuracion que llega de "+e.origin);
+    return;
+  }
+  Store.cfg={apiBase:d.apiBase,token:d.token};toast("Conectado a dominopro");
 });
 
 function askName(def){try{const n=prompt("Nombre de la foto:",def);return n===null?null:(n.trim()||def);}catch(e){return def;}}

@@ -36,6 +36,12 @@ frame.addEventListener('load', () => {
 });
 ```
 
+El simulador **descarta** ese mensaje si no llega de un origen conocido: el
+suyo propio (caso de la opcion A, servido desde la misma web) o uno de los que
+lleva escritos en `ORIGENES_HOST`, en `ui.js`. Si dominopro cambia de dominio,
+hay que anadirlo ahi; no sirve pasarlo por el mensaje ni por la URL, porque
+entonces cualquiera podria declararse de confianza.
+
 ## Opción B — Ruta / componente (si el frontend es React/Vue)
 
 Monta el módulo como ruta con carga diferida. Lo más simple sigue siendo
