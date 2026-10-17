@@ -137,6 +137,44 @@ const corta = armar(manosC, jugC, { variante_de: { id: "p-madre", n: 3 } });
   const vueltaL = await N.abrir(rl.url);
   eq("la larga también vuelve entera", vueltaL.jugadas.length, larga.jugadas.length);
 
+  /* ---- un enlace de ANTES de los sistemas configurables ----
+     Esta carga se genero con la version anterior, sin combinado ni convencion
+     de salida. Tiene que seguir abriendo, y leerse con los valores por defecto. */
+  console.log("\n--- compatibilidad: enlace generado antes de los sistemas ---");
+  const ENLACE_VIEJO = "#p=1zjZTLitswFIZfxfxrefAtgXpX2iwKJQmkqw6hKNZJqlaWMpIdaIMfqU_RFyuSnOIhF2YjhPT7_3QuPmecyDppNOqcQQrUOKakFW8ozcHQya5XBjU-K36iRJBK5mDYU_Odo0aRFfM0e5fmxZe8qsuizrOnLMu-goH3nbGo8V6LX2DQpuMONdbc8oRUEhlPYKBOvvQUbp-hPAZbhtYIj3Wy7RUXxoLhR3_wO3Koz9j4RZt2Zwm17pVicNJ11PpnNYo72RgMDItHutYIsjrolo90WupDH3WrN-kGhpZrc3npM_K0AkOWlmDIQ2azcFKGkzLsi7TykS-8PguaIi3AME99ymdhzdIsrLPgU3r90uurUTMLX0XPqJmH_TzsZ16_ivpIjJ5x9axqdIjfFtgODI4rKUItN5cqhGKdEbtmrMt4v5exNWLEvnaXPB1JOy783Wa9BvOdR0I2na9zY6ylpuNgaExLuuNW-nNhdooS0knTc9txDCxQiyl1MaHGvEUqPmEK_XAFFb0w7grZcNfJA0-c1Mm-J_v7P7WcUpcTasz-SP2Ih6HGXLwiXvyrqf9q4l_c9Y9u06DI2vC3vCLwl_7vn8RRcpRkBSWKJ74_L-DZvSLGhr2Vzivwg7jm96oV-_tNcd203zKcuJVcd_RNkP_ZxgnWcmHJTx3U5cBw7HdKNgFzxo43P0l7XZxBuDX3xgHnqcPwDw";
+  let antigua = null, fallo = null;
+  try { antigua = await N.abrir(ENLACE_VIEJO); } catch (e) { fallo = e.message; }
+  t("un enlace viejo sigue abriendo", !!antigua, fallo || "");
+  if (antigua) {
+    const C = require("../conocimiento.js");
+    eq("no se le inventan campos nuevos", antigua.jugadores.S, { nombre: null, sistema: "clasico" });
+    eq("se lee con los valores por defecto", C.configJugador(antigua.jugadores.S),
+      { sistema: "clasico", inicial: "moderno", salida: "ninguna" });
+    t("ninguna jugada trae sistema registrado",
+      antigua.jugadas.every(j => j.sistema === undefined), JSON.stringify(antigua.jugadas[0]));
+    t("y la partida sigue siendo valida", P.validar(antigua).ok,
+      JSON.stringify(P.validar(antigua).errores));
+  }
+
+  /* ---- y uno nuevo con toda la configuracion ---- */
+  console.log("\n--- la configuracion nueva viaja en el enlace ---");
+  const conCfg = P.normalizar(Object.assign(JSON.parse(JSON.stringify(corta)), {
+    id: "p-cfg-enlace",
+    jugadores: {
+      S: { nombre: null, sistema: "combinado", combinado: { inicial: "clasico" }, salida: "calidad" },
+      E: { nombre: null, sistema: "moderno" },
+      N: { nombre: null, sistema: "ninguno" }, O: { nombre: null, sistema: "ninguno" },
+    },
+  }));
+  conCfg.jugadas.filter(j => !j.pase && j.jugador === "S").forEach(j => {
+    if (j.pensada) j.sistema = "moderno";
+  });
+  const rc = await N.publicar(conCfg);
+  const vueltaCfg = await N.abrir(rc.url);
+  eq("la config vuelve entera", vueltaCfg.jugadores.S, conCfg.jugadores.S);
+  eq("y el sistema de cada jugada tambien",
+    vueltaCfg.jugadas.map(j => j.sistema || null), conCfg.jugadas.map(j => j.sistema || null));
+
   console.log("\n--- interfaz del adaptador ---");
   eq("capacidades hoy", N.capacidades(), { publicar: true, comentar: false, backend: "enlace" });
   eq("comentarios requiere servidor", (await N.comentarios("x")).motivo, "requiere servidor");

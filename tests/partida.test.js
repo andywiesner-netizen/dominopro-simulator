@@ -1,4 +1,5 @@
 const P = require("../partida.js");
+const C = require("../conocimiento.js");
 
 let fallos = 0;
 const t = (nombre, cond, extra) => {
@@ -154,7 +155,12 @@ eq("10 entradas en el historial", est.hist.length, 10);
 eq("conserva pensadas", est.hist.filter(h => h.pensada).length, JUGADAS.filter(j => j.pensada).length);
 eq("conserva veredictos", est.hist.filter(h => h.veredicto).length, JUGADAS.filter(j => j.veredicto).length);
 eq("conserva comentarios", est.hist.filter(h => h.comentario).length, JUGADAS.filter(j => j.comentario).length);
-eq("sistemas por asiento", est.sistemas, { 0: "clasico", 1: "moderno", 2: "ninguno", 3: "ninguno" });
+// pos.sistemas ya no es la cadena suelta: lleva la config entera del jugador
+eq("sistemas por asiento", est.sistemas, {
+  0: { sistema: "clasico", inicial: "moderno", salida: "ninguna" },
+  1: { sistema: "moderno", inicial: "moderno", salida: "ninguna" },
+  2: { sistema: "ninguno", inicial: "moderno", salida: "ninguna" },
+  3: { sistema: "ninguno", inicial: "moderno", salida: "ninguna" } });
 t("puntas coherentes", Array.isArray(est.ends) && est.ends.length === 2, JSON.stringify(est.ends));
 const jugadasDeS = JUGADAS.filter(j => !j.pase && j.jugador === "S").length;
 eq("a S le quedan las que no jugo", est.manos.S.length, 7 - jugadasDeS);
@@ -249,6 +255,144 @@ const corta = P.desdeTexto([
 ].join("\n"));
 console.log(P.aTexto(corta));
 console.log("\n(valida: " + P.validar(corta).ok + ")");
+
+
+
+/* ================= configuracion por jugador (sistemas y salida) ================= */
+console.log("\n--- configuracion nueva: ida y vuelta ---");
+
+// se construye por el camino real: desdeEstado con la config de cada asiento
+const CFG = {
+  0: { sistema: "combinado", combinado: { inicial: "clasico" }, salida: "calidad" },
+  1: { sistema: "moderno" },
+  2: { sistema: "ninguno", salida: "calidad" },
+  3: { sistema: "clasico" },
+};
+const estadoCfg = {
+  hands: [new Set(["0-1"]), new Set(["2-2"]), new Set(["3-3"]), new Set(["4-4"])],
+  hist: [
+    { jugador: 0, ficha: "5-5", punta: null, pensada: "SPP", sistema: "clasico", veredicto: "correcta", comentario: "sale fuerte" },
+    { jugador: 1, ficha: "5-3", punta: "D", pensada: "CPP", sistema: "moderno", veredicto: null, comentario: "" },
+    { jugador: 2, paso: true },
+    { jugador: 3, ficha: "5-1", punta: "I", pensada: "SPP", sistema: null, veredicto: null, comentario: "" },
+  ],
+};
+const conCfg = P.desdeEstado(estadoCfg, { salidor: 0, sistemas: CFG, id: "p-cfg", titulo: "Con sistemas", modo: "simulador" });
+
+eq("la config se guarda escueta (S lo lleva todo)", conCfg.jugadores.S,
+  { nombre: null, sistema: "combinado", combinado: { inicial: "clasico" }, salida: "calidad" });
+eq("un jugador por defecto no engorda", conCfg.jugadores.E, { nombre: null, sistema: "moderno" });
+eq("salida calidad se guarda aunque el sistema sea ninguno", conCfg.jugadores.N,
+  { nombre: null, sistema: "ninguno", salida: "calidad" });
+eq("solo el combinado registra sistema en su jugada", conCfg.jugadas[0].sistema, "clasico");
+t("el que no es combinado no lo registra", conCfg.jugadas[1].sistema === undefined,
+  JSON.stringify(conCfg.jugadas[1]));
+
+const textoCfg = P.aTexto(conCfg);
+console.log(textoCfg);
+t("la linea de Sistemas lleva el 'desde'", /Sistemas:.*S combinado desde clasico/.test(textoCfg), textoCfg);
+t("hay linea de Salida", /^Salida: S calidad/m.test(textoCfg), textoCfg);
+t("la jugada del combinado lleva el sufijo /C", /^1\. S 5-5 SPP\/C/m.test(textoCfg), textoCfg);
+t("la del no combinado no lo lleva", /^2\. E 3-5 D CPP$/m.test(textoCfg), textoCfg);
+eq("ida y vuelta exacta con la config nueva", P.limpiar(P.desdeTexto(textoCfg)), P.limpiar(conCfg));
+
+// el sufijo /M tambien
+const conM = JSON.parse(JSON.stringify(conCfg));
+conM.jugadas[0].sistema = "moderno";
+t("sufijo /M", /^1\. S 5-5 SPP\/M/m.test(P.aTexto(conM)), P.aTexto(conM));
+eq("ida y vuelta con /M", P.limpiar(P.desdeTexto(P.aTexto(conM))), P.limpiar(conM));
+
+console.log("\n--- una partida vieja abre con los valores por defecto ---");
+const vieja = P.desdeTexto([
+  "# Partida: de antes",
+  "Sistemas: S clasico · E moderno · N ninguno · O ninguno",
+  "Manos: S 6-6 · E 6-5 · N 5-5 · O 4-4",
+  "Sale: S",
+  "1. S 6-6 CPP",
+].join("\n"));
+eq("no se le inventan campos", vieja.jugadores.S, { nombre: null, sistema: "clasico" });
+eq("configJugador le pone los defectos", C.configJugador(vieja.jugadores.S),
+  { sistema: "clasico", inicial: "moderno", salida: "ninguna" });
+const posVieja = P.posicionEn(vieja, 1);
+eq("posicionEn da la config completa", posVieja.sistemas[0],
+  { sistema: "clasico", inicial: "moderno", salida: "ninguna" });
+const textoViejo = P.aTexto(vieja);
+t("al volver a texto no aparece la linea de Salida", !/^Salida:/m.test(textoViejo), textoViejo);
+t("ni el 'desde' en los sistemas", !/desde/.test(textoViejo), textoViejo);
+t("ni sufijos de sistema en las jugadas", !/(CPP|SPP)\//.test(textoViejo), textoViejo);
+
+console.log("\n--- un valor que no entendemos es un error, no un silencio ---");
+const malCfg = P.desdeTexto([
+  "# Partida: rara", "Sistemas: S inventado · E moderno · N ninguno · O ninguno",
+  "Salida: S loquesea · E fuerza · N fuerza · O fuerza",
+  "Manos: S ? · E ? · N ? · O ?", "Sale: S",
+].join("\n"));
+// al pegar texto lo caza el parser
+t("el parser avisa del sistema desconocido",
+  (malCfg._errores || []).some(e => /no entiendo el sistema "inventado"/.test(e.texto)),
+  JSON.stringify(malCfg._errores));
+t("y de la convencion desconocida",
+  (malCfg._errores || []).some(e => /convencion de salida "loquesea"/.test(e.texto)),
+  JSON.stringify(malCfg._errores));
+// y si llega por JSON (un enlace trucado, un fichero a mano), lo caza validar
+const malJson = P.desdeTexto(["# Partida: rara2", "Manos: S ? · E ? · N ? · O ?", "Sale: S"].join("\n"));
+malJson.jugadores.S = { nombre: null, sistema: "inventado", salida: "loquesea", combinado: { inicial: "raro" } };
+const vMal = P.validar(malJson);
+t("validar avisa del sistema desconocido", vMal.errores.some(e => /sistema desconocido/.test(e.texto)),
+  JSON.stringify(vMal.errores));
+t("validar avisa de la convencion desconocida", vMal.errores.some(e => /convencion de salida/.test(e.texto)),
+  JSON.stringify(vMal.errores));
+t("validar avisa del inicial desconocido", vMal.errores.some(e => /inicial desconocido/.test(e.texto)),
+  JSON.stringify(vMal.errores));
+
+
+/* ================= salida "ninguna" y partida sin titulo ================= */
+console.log("\n--- convencion de salida: 'ninguna' es el defecto ---");
+const sinMarca = P.desdeEstado(
+  { hands: [new Set(["0-1"]), new Set(["2-2"]), new Set(["3-3"]), new Set(["4-4"])],
+    hist: [{ jugador: 0, ficha: "5-5", punta: null, pensada: null, veredicto: null, comentario: "" }] },
+  { salidor: 0, titulo: "Quien marca la salida", id: "p-sinmarca",
+    sistemas: { 0: { sistema: "clasico", salida: "fuerza" }, 1: "moderno",
+                2: { sistema: "ninguno", salida: "calidad" },
+                3: { sistema: "ninguno", salida: "ninguna" } } });
+
+eq("se guarda la de quien marca por fuerza", sinMarca.jugadores.S,
+  { nombre: null, sistema: "clasico", salida: "fuerza" });
+eq("y la de quien marca por calidad sin sistema", sinMarca.jugadores.N,
+  { nombre: null, sistema: "ninguno", salida: "calidad" });
+eq("el que no la toca no engorda", sinMarca.jugadores.E, { nombre: null, sistema: "moderno" });
+eq("ni el que la pone a ninguna a mano", sinMarca.jugadores.O, { nombre: null, sistema: "ninguno" });
+const txtSinMarca = P.aTexto(sinMarca);
+t("la linea de Salida las nombra todas",
+  /^Salida: S fuerza \u00b7 E ninguna \u00b7 N calidad \u00b7 O ninguna$/m.test(txtSinMarca), txtSinMarca);
+eq("ida y vuelta exacta", P.limpiar(P.desdeTexto(txtSinMarca)), P.limpiar(sinMarca));
+eq("el defecto de quien no la toca es no marcar",
+  C.configJugador(sinMarca.jugadores.E).salida, "ninguna");
+t("validar no se queja de la convencion", !P.validar(sinMarca).errores.some(e => /convencion de salida/.test(e.texto)), JSON.stringify(P.validar(sinMarca).errores));
+// y si nadie marca, la linea no se escribe
+const nadieMarca = P.desdeEstado(
+  { hands: [new Set(["0-1"]), new Set(["2-2"]), new Set(["3-3"]), new Set(["4-4"])], hist: [] },
+  { salidor: 0, id: "p-nadie", sistemas: { 0: "clasico", 1: "moderno", 2: "ninguno", 3: "ninguno" } });
+t("sin nadie que marque no hay linea de Salida", !/^Salida:/m.test(P.aTexto(nadieMarca)), P.aTexto(nadieMarca));
+eq("y vuelve igual", P.limpiar(P.desdeTexto(P.aTexto(nadieMarca))), P.limpiar(nadieMarca));
+
+console.log("\n--- partida sin titulo ---");
+const anonima = P.desdeEstado(
+  { hands: [new Set(["0-1"]), new Set(["2-2"]), new Set(["3-3"]), new Set(["4-4"])],
+    hist: [{ jugador: 0, ficha: "5-5", punta: null, pensada: null, veredicto: null, comentario: "" }] },
+  { salidor: 0, id: "p-anon", sistemas: { 0: "ninguno", 1: "ninguno", 2: "ninguno", 3: "ninguno" } });
+eq("nace sin titulo", anonima.titulo, "");
+const txtAnon = P.aTexto(anonima);
+console.log(txtAnon.split("\n").map(l => "    " + l).join("\n"));
+t("no se escribe la linea de titulo", !/^#/m.test(txtAnon), txtAnon);
+t("ni aparece el (sin titulo) de antes", !/sin titulo/i.test(txtAnon), txtAnon);
+eq("el titulo vuelve vacio", P.desdeTexto(txtAnon).titulo, "");
+eq("ida y vuelta exacta sin titulo", P.limpiar(P.desdeTexto(txtAnon)), P.limpiar(anonima));
+
+// y con titulo sigue saliendo la linea
+const conTitulo = Object.assign(JSON.parse(JSON.stringify(anonima)), { titulo: "Con nombre" });
+t("con titulo si se escribe", /^# Partida: Con nombre$/m.test(P.aTexto(conTitulo)), P.aTexto(conTitulo));
+eq("y vuelve igual", P.limpiar(P.desdeTexto(P.aTexto(conTitulo))), P.limpiar(conTitulo));
 
 console.log(fallos ? "\n" + fallos + " FALLOS" : "\nTodo correcto");
 process.exit(fallos ? 1 : 0);

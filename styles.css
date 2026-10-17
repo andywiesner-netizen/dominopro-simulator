@@ -182,14 +182,45 @@
   .foot{text-align:center; color:var(--dim); font-size:.72rem; margin-top:18px;}
   .toast{position:fixed; left:50%; bottom:22px; transform:translateX(-50%);
          background:#000c; color:#fff; padding:9px 16px; border-radius:20px; font-size:.85rem;
-         opacity:0; transition:opacity .25s; pointer-events:none; z-index:9;}
+         opacity:0; transition:opacity .25s; pointer-events:none; z-index:9999;}
+         /* 9999: la mesa a pantalla completa va en z-index 50 y tapaba TODOS los avisos */
   .toast.show{opacity:1;}
   .topbar{display:flex; justify-content:flex-start; margin-bottom:2px;}
   /* ===== Mesa a pantalla completa (estilo JuegoDomino) ===== */
   .dtable{position:fixed; inset:0; display:flex; flex-direction:column; background:#0a170a; z-index:50;}
-  .dtoolbar{display:flex; gap:6px; align-items:center; padding:6px 8px; overflow-x:auto;
-    background:linear-gradient(#0e230e,#0a170a); border-bottom:2px solid #d9c24a; white-space:nowrap; flex:0 0 auto;}
-  .dtoolbar .tb{border:none; border-radius:7px; padding:7px 10px; font-weight:700; font-size:.8rem; color:#fff; cursor:pointer; flex:0 0 auto;}
+  /* La barra NO hace scroll horizontal: si algo no cabe, baja de linea. Lo que
+     se usa jugando esta suelto; el resto vive en tres menus (Mesa/IA/Partida). */
+  .dtoolbar{position:relative; z-index:80; display:flex; flex-wrap:wrap; gap:6px; align-items:center;
+    padding:6px 8px; background:linear-gradient(#0e230e,#0a170a); border-bottom:2px solid #d9c24a; flex:0 0 auto;}
+  .dtoolbar .tb{border:none; border-radius:7px; padding:8px 10px; min-height:34px; font-weight:700;
+    font-size:.8rem; color:#fff; cursor:pointer; flex:0 0 auto; white-space:nowrap; font-family:inherit;}
+  .dtoolbar .tb[aria-disabled="true"]{opacity:.4;}
+
+  /* ---- menus desplegables de la barra ---- */
+  .menu{position:relative; flex:0 0 auto;}
+  .mtrig i{font-style:normal; font-size:.72em; opacity:.85; margin-left:3px;}
+  .mtrig[aria-expanded="true"]{box-shadow:0 0 0 2px var(--gold);}
+  /* telon transparente: se come el toque de fuera, asi cerrar un menu nunca
+     dispara una jugada ni empieza un arrastre en el tablero de debajo */
+  .mback{position:fixed; inset:0; z-index:70; background:transparent;}
+  .pop{position:absolute; top:calc(100% + 6px); left:0; z-index:90;
+    min-width:216px; max-width:min(84vw,300px); background:#12240f; border:1px solid #d9c24a;
+    border-radius:12px; padding:5px; box-shadow:0 14px 30px rgba(0,0,0,.65);
+    max-height:min(70vh,430px); overflow-y:auto; overscroll-behavior:contain;}
+  .pop[hidden]{display:none;}
+  .pop.arriba{top:auto; bottom:calc(100% + 6px);}
+  .pop.derecha{left:auto; right:0;}
+  .pop hr{border:0; border-top:1px solid rgba(255,255,255,.12); margin:4px 7px;}
+  .pop .mi{display:flex; align-items:center; gap:9px; width:100%; min-height:44px; padding:6px 10px;
+    background:transparent; border:0; border-radius:8px; color:var(--ivory); font-family:inherit;
+    font-size:.84rem; font-weight:700; text-align:left; cursor:pointer;}
+  .pop .mi .ic{flex:0 0 auto; width:1.4em; text-align:center; font-size:.95em;}
+  .pop .mi .tx{flex:1; min-width:0;}
+  .pop .mi .por{display:block; font-size:.65rem; font-weight:600; color:var(--dim); white-space:normal;}
+  .pop .mi:hover{background:rgba(217,194,74,.16);}
+  .pop .mi:focus{outline:none; background:rgba(217,194,74,.22); box-shadow:inset 0 0 0 2px var(--gold);}
+  .pop .mi[aria-disabled="true"]{opacity:.45; cursor:default;}
+  .pop .mi[aria-disabled="true"]:hover{background:transparent;}
   .b-user{background:#2a2a2a; color:#ffd166;} .b-azar{background:#e6a417; color:#3a2600;}
   .b-man{background:#2f7fd1;} .b-copiar{background:#4a4f45;} .b-rew{background:#2f7fd1;}
   .b-back{background:#2b8a8f;} .b-pasa{background:#d64545;} .b-sug{background:#e6a417; color:#3a2600;}
@@ -197,6 +228,16 @@
   .dscore{margin-left:auto; display:flex; gap:10px; align-items:center; background:#0a170a;
     border:1px solid #d9c24a; border-radius:8px; padding:5px 10px; color:#ffd166; font-weight:800; font-size:.82rem; flex:0 0 auto;}
   .dscore b{color:#fff;}
+  /* pantallas estrechas y horizontales bajitas: la barra se aprieta para no
+     robarle filas al tapete */
+  @media (max-width:400px), (max-height:430px){
+    .dtoolbar{gap:5px; padding:5px 6px;}
+    .dtoolbar .tb{padding:7px 8px; font-size:.74rem;}
+    /* el marcador se aprieta para caber en la segunda fila: con tres filas de
+       barra a 320px el tapete se queda sin sitio */
+    .dtoolbar .mtrig{padding:7px 7px;}
+    .dscore{gap:3px; padding:2px 4px; font-size:.66rem; border:0; background:transparent;}
+  }
   .felt{flex:1; display:flex; flex-direction:column; background:radial-gradient(circle at 50% 42%, #2f8f3a, #17601c 80%); min-height:0;}
   .band{display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; padding:6px;}
   .norte{background:rgba(0,0,0,.20);}
@@ -224,8 +265,12 @@
   .pmark{position:absolute; top:-8px; right:-4px; background:var(--gold); color:#3a2c00;
          font-size:.52rem; font-weight:800; border-radius:5px; padding:0 3px; letter-spacing:.3px;}
   .pensadabar{display:flex; gap:4px; justify-content:center; margin-top:3px;}
-  .selsis{font-size:.6rem; padding:1px 3px; border-radius:6px; border:1px solid rgba(255,255,255,.25);
-          background:#0d2410; color:var(--ivory); margin-top:2px; max-width:88px;}
+  /* ahora son hasta tres por banda (sistema, inicial del combinado y salida):
+     en bloque y sin pasarse del ancho de la banda, que a 320px se salia */
+  .selsis{display:block; width:100%; max-width:100%; font-size:.6rem; padding:1px 3px;
+          border-radius:6px; border:1px solid rgba(255,255,255,.25);
+          background:#0d2410; color:var(--ivory); margin:2px auto 0;}
+  .band .lbl{min-width:0; max-width:100%;}
 
   .txtpartida{width:100%; min-height:150px; background:#0a1c0d; color:var(--ivory); font-size:.72rem;
               border:1px solid rgba(255,255,255,.2); border-radius:10px; padding:8px;

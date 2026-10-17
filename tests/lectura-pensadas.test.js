@@ -3,7 +3,7 @@
    Solo se puede hacer en los ejercicios donde el taller publica las manos de
    los cuatro jugadores: Ej.16a, Ej.16b y Ej.17. En los demás únicamente se
    conoce mi propia mano, así que anotar la pensada ajena sería inventarla. */
-const { sugerirJugada, reconstruirMesa, pensadaPara } = require("../conocimiento.js");
+const { sugerirJugada, reconstruirMesa, pensadaPara, leerPensadas } = require("../conocimiento.js");
 const NOM = ["A", "B", "C", "D"];
 
 // Manos completas publicadas por el taller para el Ej.16 / Ej.17.
@@ -85,4 +85,68 @@ const a = correr("sistemas 'ninguno' (linea base)", nada);
 const b = correr("sistemas mezclados (A,C clasico / B,D moderno)", mixto);
 console.log("\n" + (a === b ? "Mismas decisiones en las dos corridas." :
   "Las lecturas de pensada cambiaron alguna decision (ver arriba)."));
+
+/* ================= convencion de salida y combinado =================
+   Cada pensada se lee con la configuracion de QUIEN LA JUGO. La misma salida
+   dice cosas distintas segun la convencion de su autor. */
+function marca(ok, nombre, extra) {
+  console.log((ok ? "  ok     " : "  FALLA  ") + nombre + (extra ? "\n           " + extra : ""));
+  if (!ok) process.exitCode = 1;
+}
+
+console.log("\n=== la salida se lee con la convencion del que salio ===");
+// S sale 5-5 con pensada SPP. Lo mismo, leido de dos maneras.
+const salida = [{ jugador: 0, ficha: "5-5", castiga: null, genera: [5], pensada: "SPP" }];
+
+const porFuerza = leerPensadas(salida, { 0: { sistema: "clasico", salida: "fuerza" } });
+const porCalidad = leerPensadas(salida, { 0: { sistema: "clasico", salida: "calidad" } });
+
+marca(porFuerza.por[0].noTiene.has(5) && porFuerza.por[0].juego === null,
+  'por fuerza: "no le quedan mas quintos", nada sobre su juego',
+  "noTiene=" + [...porFuerza.por[0].noTiene] + " juego=" + porFuerza.por[0].juego);
+marca(porCalidad.por[0].juego === "bueno" && porCalidad.por[0].noTiene.size === 0,
+  'por calidad: "buen juego", nada sobre el palo',
+  "juego=" + porCalidad.por[0].juego + " noTiene=" + [...porCalidad.por[0].noTiene]);
+marca(porFuerza.notas[0].dice !== porCalidad.notas[0].dice,
+  "la misma salida da lecturas DISTINTAS",
+  porFuerza.notas[0].dice + "  /  " + porCalidad.notas[0].dice);
+console.log("         fuerza  -> " + porFuerza.notas[0].dice);
+console.log("         calidad -> " + porCalidad.notas[0].dice);
+
+const salidaCPP = [{ jugador: 0, ficha: "5-5", castiga: null, genera: [5], pensada: "CPP" }];
+marca(leerPensadas(salidaCPP, { 0: { sistema: "clasico", salida: "calidad" } }).por[0].juego === "malo",
+  "por calidad, salir CPP declara juego malo o complicado");
+
+console.log("\n=== combinado: cada jugada conserva SU sistema ===");
+/* El mismo jugador cambia de sistema a mitad de la mano. La jugada 1 se
+   registro en clasico y la 2 en moderno: cada una se lee con el suyo, aunque
+   despues cambie otra vez. */
+const secuencia = [
+  { jugador: 1, ficha: "3-4", castiga: 3, genera: [4], pensada: "CPP", sistema: "clasico" },
+  { jugador: 1, ficha: "4-6", castiga: 4, genera: [6], pensada: "SPP", sistema: "moderno" },
+];
+const comb = leerPensadas(secuencia, { 1: { sistema: "combinado", combinado: { inicial: "moderno" } } });
+marca(comb.por[1].tieneMas.has(3), "la 1a, en clasico, habla del CASTIGADO (3)",
+  "tieneMas=" + [...comb.por[1].tieneMas]);
+marca(comb.por[1].fuerte.has(6), "la 2a, en moderno, habla del GENERADO (6)",
+  "fuerte=" + [...comb.por[1].fuerte]);
+marca(comb.notas[0].sistema === "clasico" && comb.notas[1].sistema === "moderno",
+  "cada nota lleva el sistema con el que se jugo",
+  comb.notas.map(n => n.ficha + ":" + n.sistema).join(" "));
+marca(comb.notas.every(n => n.sistemaDeclarado === "combinado"),
+  "y recuerda que el jugador juega combinado (para rotular \"combinado -> X\")");
+
+// sin sistema registrado (partida vieja) se usa el inicial de la config
+const sinRegistrar = [{ jugador: 1, ficha: "3-4", castiga: 3, genera: [4], pensada: "SPP" }];
+marca(leerPensadas(sinRegistrar, { 1: { sistema: "combinado", combinado: { inicial: "clasico" } } })
+        .por[1].noTiene.has(3),
+  "una jugada sin sistema registrado cae en el inicial (clasico)");
+marca(leerPensadas(sinRegistrar, { 1: { sistema: "combinado", combinado: { inicial: "moderno" } } })
+        .por[1].fuerte.has(4),
+  "y con inicial moderno, se lee por el generado");
+
+// la forma vieja (una cadena por asiento) tiene que seguir valiendo
+marca(leerPensadas(sinRegistrar, { 1: "moderno" }).por[1].fuerte.has(4),
+  "sigue aceptando la config vieja en forma de cadena");
+
 process.exit(0);

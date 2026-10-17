@@ -140,7 +140,7 @@ function liveChooseOther(p,k,sides){
 }
 function liveOtherPlay(p,k,side){livePush();
   const cast=LS.ends===null?null:(side==="I"?LS.ends[0]:LS.ends[1]);
-  (LS.hist=LS.hist||[]).push({jugador:p,ficha:k,punta:LS.ends===null?null:side,castiga:cast,pensada:liveMarca,veredicto:null,comentario:null});
+  (LS.hist=LS.hist||[]).push({jugador:p,ficha:k,punta:LS.ends===null?null:side,castiga:cast,pensada:liveMarca,sistema:sistemaDeLaJugada(p),veredicto:null,comentario:null});
   placeOnBoard(LS,k,side);LS.unseen.delete(k);LS.remaining[p]--;LS.passes=0;
   toast(`${ROLE[p]} jugó ${k}${liveMarca?" · "+liveMarca:""}`);liveMarca=null;liveAfter();}
 function liveOtherPass(p){livePush();(LS.hist=LS.hist||[]).push({jugador:p,paso:true,pensada:null,veredicto:null,comentario:null});if(LS.ends!==null){LS.forbidden[p].add(LS.ends[0]);LS.forbidden[p].add(LS.ends[1]);}LS.passes++;toast(`${ROLE[p]} se pasó`);liveAfter();}
@@ -377,19 +377,25 @@ function renderBand(id,pos,ctx){
   });
   if(pos===0){
     el.appendChild(wrap);
+    if(!enAnalisis()){const cc=document.createElement("div");cc.innerHTML=conmutadorCombinado(seat);if(cc.firstChild)el.appendChild(cc.firstChild);}
     if(enAnalisis()){const c=document.createElement("div");c.innerHTML=barraCursor();if(c.firstChild)el.appendChild(c.firstChild);}
-    if(seat===0&&sistemas[0]!=="ninguno"&&!enAnalisis()){const c=document.createElement("div");c.innerHTML=conmutadorPensada();el.appendChild(c.firstChild);}
+    if(seat===0&&marcaAhora(0)&&!enAnalisis()){const c=document.createElement("div");c.innerHTML=conmutadorPensada();el.appendChild(c.firstChild);}
     el.appendChild(lab);
-  }else{el.appendChild(lab);el.appendChild(wrap);}
+  }else{
+    el.appendChild(lab);
+    if(!enAnalisis()){const cc=document.createElement("div");cc.innerHTML=conmutadorCombinado(seat);if(cc.firstChild)el.appendChild(cc.firstChild);}
+    el.appendChild(wrap);
+  }
 }
 function simIdle(){
   ["bandN","bandS","bandW","bandE"].forEach(id=>{const el=document.getElementById(id);if(!el)return;el.innerHTML="";el.classList.remove("active");});
   const dc=document.getElementById("dcenter");if(dc)dc.innerHTML=`<div class="muted center" style="font-size:1.05rem">Elige un modo arriba para comenzar</div>`;
   const sc=document.getElementById("dscore");if(sc)sc.innerHTML="";
-  const tv=document.getElementById("tbVer");if(tv)tv.textContent="👁 Ver todas";
-  clearPanel();
+  rotulo("tbVer","Ver todas","👁");
+  clearPanel();cerrarMenu();actualizarBarra();
 }
 function simRender(){
+  actualizarBarra();
   if(!GS){simIdle();return;}
   if(GS.over)return;const cur=GS.current;
   const moves=aiBestMovesDeep(GS.hands,GS.ends,cur,GS.passes);const best=moves.length?moves[0].k:null;
@@ -400,7 +406,8 @@ function simRender(){
   renderBand("bandN",2,ctx); renderBand("bandS",0,ctx); renderBand("bandW",3,ctx); renderBand("bandE",1,ctx);
   const dc=document.getElementById("dcenter");if(dc)dc.innerHTML=boardCenterHTML(cur);
   fillBoardChain();
-  const tv=document.getElementById("tbVer");if(tv)tv.textContent=verTodas?"🙈 Ocultar":"👁 Ver todas";
+  rotulo("tbVer",verTodas?"Ocultar las manos":"Ver todas",verTodas?"🙈":"👁");
+  actualizarBarra();
 }
 function dpanel(html){const dp=document.getElementById("dpanel");if(!dp)return;dp.innerHTML=html;dp.style.display="block";}
 function clearPanel(){const dp=document.getElementById("dpanel");if(dp){dp.innerHTML="";dp.style.display="none";}}
@@ -421,7 +428,8 @@ function simDo(k,side){
   sugeridaK=null;simPush();const p=GS.current;
   const pen=(p===0&&pensadaForzada)?pensadaForzada:calcularPensada(p,k,side);
   // veredicto/comentario quedan preparados para anotar partidas; aun sin interfaz
-  GS.hist.push({jugador:p,ficha:k,punta:GS.ends===null?null:side,pensada:pen,veredicto:null,comentario:null});
+  GS.hist.push({jugador:p,ficha:k,punta:GS.ends===null?null:side,pensada:pen,
+                sistema:sistemaDeLaJugada(p),veredicto:null,comentario:null});
   if(p===0){avisoPensada(k,pen);pensadaForzada=null;}
   placeOnBoard(GS,k,side);GS.hands[p].delete(k);GS.lastKey=k;GS.passes=0;GS.log.push(`${ROLE[p]} juega ${k}${side==="I"?" → izq":side==="D"?" → der":""}${pen?" · "+pen:""}`);simNext();}
 
@@ -533,7 +541,7 @@ function simPass(){
 function simAIMove(silent){
   if(!GS||GS.over)return;const cur=GS.current;const moves=aiBestMovesDeep(GS.hands,GS.ends,cur,GS.passes);
   if(!silent)simPush();else GS.history.push(simSnap());
-  if(moves.length){const m=moves[0];GS.hist.push({jugador:cur,ficha:m.k,punta:GS.ends===null?null:m.side,pensada:calcularPensada(cur,m.k,m.side),veredicto:null,comentario:null});placeOnBoard(GS,m.k,m.side);GS.hands[cur].delete(m.k);GS.lastKey=m.k;GS.passes=0;GS.log.push(`${ROLE[cur]} juega ${m.k}${m.side==="I"?" → izq":m.side==="D"?" → der":""}${GS.hist[GS.hist.length-1].pensada?" · "+GS.hist[GS.hist.length-1].pensada:""}`);}
+  if(moves.length){const m=moves[0];GS.hist.push({jugador:cur,ficha:m.k,punta:GS.ends===null?null:m.side,pensada:calcularPensada(cur,m.k,m.side),sistema:sistemaDeLaJugada(cur),veredicto:null,comentario:null});placeOnBoard(GS,m.k,m.side);GS.hands[cur].delete(m.k);GS.lastKey=m.k;GS.passes=0;GS.log.push(`${ROLE[cur]} juega ${m.k}${m.side==="I"?" → izq":m.side==="D"?" → der":""}${GS.hist[GS.hist.length-1].pensada?" · "+GS.hist[GS.hist.length-1].pensada:""}`);}
   else{GS.hist.push({jugador:cur,paso:true,pensada:null,veredicto:null,comentario:null});GS.passes++;GS.log.push(`${ROLE[cur]} se pasa`);}
   simNext(silent);
 }
@@ -599,8 +607,9 @@ window.addEventListener("message",e=>{
 });
 
 function askName(def){try{const n=prompt("Nombre de la foto:",def);return n===null?null:(n.trim()||def);}catch(e){return def;}}
-function posFromGame(){return {hands:GS.hands.map(s=>[...s]),ends:GS.ends?GS.ends.slice():null,sequence:GS.sequence.slice(),current:GS.current,passes:GS.passes,starter:simStarter,dealMode:simDealMode,sistemas:Object.assign({},sistemas),hist:(GS.hist||[]).slice()};}
-function posFromDeal(){return {hands:[0,1,2,3].map(p=>Object.keys(owner).filter(k=>owner[k]===p)),ends:null,sequence:[],current:simStarter,passes:0,starter:simStarter,dealMode:simDealMode,sistemas:Object.assign({},sistemas)};}
+const copiaSistemas=()=>JSON.parse(JSON.stringify(sistemas));
+function posFromGame(){return {hands:GS.hands.map(s=>[...s]),ends:GS.ends?GS.ends.slice():null,sequence:GS.sequence.slice(),current:GS.current,passes:GS.passes,starter:simStarter,dealMode:simDealMode,sistemas:copiaSistemas(),hist:(GS.hist||[]).slice()};}
+function posFromDeal(){return {hands:[0,1,2,3].map(p=>Object.keys(owner).filter(k=>owner[k]===p)),ends:null,sequence:[],current:simStarter,passes:0,starter:simStarter,dealMode:simDealMode,sistemas:copiaSistemas()};}
 function nowISO(){try{return new Date().toISOString();}catch(e){return "";}}
 function buildItem(name,pos){
   const played=28-pos.hands.reduce((n,h)=>n+h.length,0);
@@ -632,7 +641,7 @@ async function renderSaves(targetId){
 }
 function loadPosition(pos){
   simStarter=pos.starter;simDealMode=pos.dealMode||"guardada";
-  if(pos.sistemas)[0,1,2,3].forEach(p2=>{if(pos.sistemas[p2])sistemas[p2]=pos.sistemas[p2];});
+  if(pos.sistemas)ponerSistemas(pos.sistemas);
   GS={hands:pos.hands.map(a=>new Set(a)),ends:pos.ends?pos.ends.slice():null,sequence:pos.sequence.slice(),
       current:pos.current,passes:pos.passes||0,over:false,history:[],log:[],hist:(pos.hist||[]).slice()};
   GS.initial=simSnap();
@@ -756,36 +765,112 @@ $("#tbMano").onclick=()=>{
   dpanel(panelMano(analizarMano(mias,jugadas),saleSur?asesorSalida(mias):null));
 };
 
-/* ---- sistemas de pensada y registro de la marca ----
-   Cada asiento juega con 'ninguno' (por defecto), 'clasico' o 'moderno'. La
-   pensada NUNCA se infiere: la calcula el sistema de quien juega, o la anota
-   quien la vio. Se elige en el reparto y viaja con la partida. */
-let sistemas={0:"ninguno",1:"ninguno",2:"ninguno",3:"ninguno"};
+/* ---- sistemas de informacion y registro de la marca ----
+   Cada asiento tiene su configuracion: {sistema, inicial, salida}.
+     sistema : ninguno | clasico | moderno | combinado
+     inicial : con cual arranca un combinado (clasico|moderno)
+     salida  : que informa su pensada de SALIDA (ninguna|fuerza|calidad).
+               Es un eje aparte: no depende del sistema, y por defecto no marca.
+   La pensada NUNCA se infiere: la calcula el sistema de quien juega, o la
+   anota quien la vio. Se elige en el reparto y viaja con la partida.
+
+   Combinado: no hay regla automatica de cambio. El usuario conmuta cuando
+   quiere y cada jugada guarda el sistema que estaba vigente al hacerla. */
+function cfgPorDefecto(){return {sistema:"ninguno",inicial:"moderno",salida:"ninguna"};}
+let sistemas={0:cfgPorDefecto(),1:cfgPorDefecto(),2:cfgPorDefecto(),3:cfgPorDefecto()};
+// con que sistema juega AHORA cada combinado (null = el inicial de su config)
+let sistemaVigente={0:null,1:null,2:null,3:null};
 let pensadaForzada=null;                 // Auto / CPP / SPP para tu proxima jugada
+
+function cfgDe(seat){return configJugador(sistemas[seat]);}
+function ponerSistemas(mapa){
+  [0,1,2,3].forEach(i=>{ sistemas[i]=configJugador(mapa?mapa[i]:null); });
+  sistemaVigente={0:null,1:null,2:null,3:null};
+}
+// el sistema con el que un combinado esta jugando en este momento
+/* marca algo este jugador? (puede marcar solo la salida, sin sistema)
+   marcaAhora mira el momento: en la salida manda la convencion, despues el
+   sistema. Asi el conmutador Auto/CPP/SPP solo sale cuando sirve de algo. */
+function marcaAlgo(seat){const c=cfgDe(seat);return c.sistema!=="ninguno"||c.salida!=="ninguna";}
+function marcaAhora(seat){
+  const c=cfgDe(seat);
+  return (!GS||GS.ends===null) ? c.salida!=="ninguna" : c.sistema!=="ninguno";
+}
+function vigenteDe(seat){
+  const c=cfgDe(seat);
+  if(c.sistema!=="combinado")return c.sistema==="ninguno"?null:c.sistema;
+  return sistemaVigente[seat]||c.inicial;
+}
+// lo que se guarda en la jugada: solo los combinados registran sistema
+function sistemaDeLaJugada(seat){
+  return cfgDe(seat).sistema==="combinado"?vigenteDe(seat):null;
+}
 function jugadasEnMesa(){return (GS&&GS.sequence?GS.sequence:[]).map(t=>key(t[0],t[1]));}
 // Calcula la pensada de una jugada ANTES de ponerla en la mesa.
 function calcularPensada(p,k,side){
   const cast=GS.ends===null?null:(side==="I"?GS.ends[0]:GS.ends[1]);
   const t=kt(k); const gen=cast===null?null:(t[0]===cast?t[1]:t[0]);
   return pensadaPara({ficha:k,lado:side,numeroCastigado:cast,numeroGenerado:gen,
-    mano:[...GS.hands[p]],sistema:sistemas[p],jugadas:jugadasEnMesa()});
+    mano:[...GS.hands[p]],sistema:sistemas[p],sistemaJugada:vigenteDe(p),
+    jugadas:jugadasEnMesa()});
 }
+const NOMBRE_SIS={clasico:"clásico",moderno:"moderno",combinado:"combinado",ninguno:"ninguno"};
+const SIS_CORTO={clasico:"clás",moderno:"mod"};
 function avisoPensada(k,pen){
   if(!pen)return;
-  const sis=sistemas[0];
+  const c=cfgDe(0), sis=vigenteDe(0);
   const t=kt(k), doble=t[0]===t[1];
-  const que=doble?"es doble":sis==="clasico"?"informa el número que castigas":"informa el número que generas";
-  toast(`Jugaste ${k} ${pen}: ${que} (${sis})`);
+  // la salida se explica por su convencion; el sistema no pinta nada ahi
+  if(GS&&GS.sequence&&GS.sequence.length<=1){
+    const queS=c.salida==="calidad"?"informa si tu mano es buena"
+                                   :"informa el acompañamiento de tu salida";
+    toast(`Jugaste ${k} ${pen}: ${queS} (salida por ${c.salida})`);
+    return;
+  }
+  const comoJuega=c.sistema==="combinado"?`combinado → ${NOMBRE_SIS[sis]}`:NOMBRE_SIS[sis];
+  const que=doble?"es doble"
+          :sis==="clasico"?"informa el número que castigas":"informa el número que generas";
+  toast(`Jugaste ${k} ${pen}: ${que} (${comoJuega})`);
 }
-/* ---- selector de sistema en el reparto ---- */
+/* ---- selectores de configuracion en el reparto ----
+   Sistema y convencion de salida siempre; el sistema inicial solo si juega
+   combinado, que es cuando significa algo. */
 function selectorSistema(seat){
-  const op=SISTEMAS.map(x=>`<option value="${x}"${sistemas[seat]===x?" selected":""}>${x}</option>`).join("");
-  return `<select class="selsis" data-seat="${seat}" title="Sistema de pensada de ${ROLE[seat]}">${op}</select>`;
+  const c=cfgDe(seat);
+  const sel=(clase,campo,valores,valor,titulo)=>
+    `<select class="${clase}" data-seat="${seat}" data-campo="${campo}" title="${titulo}">`+
+    valores.map(x=>`<option value="${x}"${valor===x?" selected":""}>${x}</option>`).join("")+"</select>";
+  let h=sel("selsis","sistema",SISTEMAS,c.sistema,"Sistema de información de "+ROLE[seat]);
+  if(c.sistema==="combinado")
+    h+=sel("selsis","inicial",["clasico","moderno"],c.inicial,"Con cuál empieza "+ROLE[seat]);
+  h+=sel("selsis","salida",SALIDAS,c.salida,"Qué informa la salida de "+ROLE[seat]);
+  return h;
 }
 document.addEventListener("change",ev=>{
   const sel=ev.target.closest(".selsis");
   if(!sel)return;
-  sistemas[+sel.dataset.seat]=sel.value;
+  const seat=+sel.dataset.seat, campo=sel.dataset.campo||"sistema";
+  const c=cfgDe(seat);
+  if(campo==="inicial")c.inicial=sel.value;
+  else if(campo==="salida")c.salida=sel.value;
+  else { c.sistema=sel.value; sistemaVigente[seat]=null; }
+  sistemas[seat]=c;
+  if(GS)simRender(); else simIdle();
+});
+/* ---- conmutador Clásico/Moderno de un combinado, en su banda ----
+   Vale para cualquier asiento: el tuyo, los de la IA y el del asistente en
+   vivo. Se cambia cuando se quiera, antes de jugar. */
+function conmutadorCombinado(seat){
+  if(cfgDe(seat).sistema!=="combinado")return "";
+  const v=vigenteDe(seat);
+  const uno=(x,txt)=>`<button class="tb ${v===x?"b-sug":"b-copiar"}" data-comb="${x}" data-cseat="${seat}" `+
+    `style="padding:2px 6px;font-size:.6rem">${txt}</button>`;
+  return `<div class="pensadabar">${uno("clasico","Clás")}${uno("moderno","Mod")}</div>`;
+}
+document.addEventListener("click",ev=>{
+  const b=ev.target.closest("[data-comb]");
+  if(!b)return;
+  sistemaVigente[+b.dataset.cseat]=b.dataset.comb;
   if(GS)simRender(); else simIdle();
 });
 /* ---- conmutador Auto / CPP / SPP junto a tu mano ---- */
@@ -797,19 +882,28 @@ document.addEventListener("click",ev=>{
   simRender();
 });
 function conmutadorPensada(){
-  if(sistemas[0]==="ninguno")return "";
+  if(!marcaAhora(0))return "";
   const uno=(v,txt)=>`<button class="tb ${((v==="auto")===(pensadaForzada===null))&&(v==="auto"||v===pensadaForzada)?"b-sug":"b-copiar"}" data-pensada="${v}" style="padding:3px 7px;font-size:.66rem">${txt}</button>`;
   return `<div class="pensadabar">${uno("auto","Auto")}${uno("CPP","CPP")}${uno("SPP","SPP")}</div>`;
 }
 /* ---- lectura de pensadas para el panel de Sugerir ---- */
+// "moderno", "combinado → clásico", y en la salida tambien la convencion
+function etiquetaLectura(n){
+  const sis=n.sistemaDeclarado==="combinado"?`combinado → ${NOMBRE_SIS[n.sistema]}`
+           :(NOMBRE_SIS[n.sistemaDeclarado]||n.sistemaDeclarado);
+  // quien no lleva sistema en partida solo tiene la convencion que enseñar
+  if(n.esSalida&&n.convencion)
+    return (n.sistemaDeclarado==="ninguno"?"":sis+" · ")+`salida por ${n.convencion}`;
+  return sis;
+}
 function bloqueLecturas(lecturas){
   if(!lecturas||!lecturas.length)return "";
   const filas=lecturas.slice(-6).map(n=>
-    `<div class="row"><span>${ROLE[n.jugador]} jugó ${n.ficha} <b>${n.pensada}</b> <span class="muted">(${n.sistema})</span></span></div>
+    `<div class="row"><span>${ROLE[n.jugador]} jugó ${n.ficha} <b>${n.pensada}</b> <span class="muted">(${etiquetaLectura(n)})</span></span></div>
      <div class="muted" style="font-size:.68rem;text-align:right">→ ${n.dice}</div>`).join("");
   return `<div class="probpanel" style="margin-top:8px">
     <div class="muted" style="font-size:.72rem;margin-bottom:4px">Lectura de pensadas:</div>${filas}
-    <div class="muted" style="font-size:.66rem;margin-top:4px">CPP = con pensada previa · SPP = sin pensada previa. En clásico la marca habla del número que castiga; en moderno, del que genera.</div>
+    <div class="muted" style="font-size:.66rem;margin-top:4px">CPP = con pensada previa · SPP = sin pensada previa. En clásico la marca habla del número que castiga; en moderno, del que genera. La salida por calidad habla de la mano entera, no de un palo.</div>
   </div>`;
 }
 
@@ -823,7 +917,8 @@ function estadoParaSugerir(){
   const hist=GS.hist||[];
   let mesa; try{ mesa=reconstruirMesa(hist); }catch(e){ return null; }
   // la marca viaja con la jugada: reconstruirMesa no la inventa, solo la copia
-  let i=0; mesa.secuencia.forEach(sq=>{ while(i<hist.length&&hist[i].paso)i++; if(i<hist.length)sq.pensada=hist[i++].pensada||null; });
+  let i=0; mesa.secuencia.forEach(sq=>{ while(i<hist.length&&hist[i].paso)i++;
+    if(i<hist.length){sq.pensada=hist[i].pensada||null;sq.sistema=hist[i].sistema||null;i++;} });
   const primera=hist.find(h=>!h.paso);
   // La pensada de la salida solo se sabe de verdad si saliste TÚ: de la mano
   // ajena no puedes deducir el acompañamiento. Si no, va null (peso normal).
@@ -1032,7 +1127,7 @@ function guardarBiblioteca(lista){
 // convierte una "foto" del formato antiguo en una partida v1
 function partidaDesdePos(pos,titulo){
   const est={hands:(pos.hands||[]).map(a=>new Set(a)),hist:[]};
-  return desdeEstado(est,{salidor:pos.starter||0,sistemas:{0:"ninguno",1:"ninguno",2:"ninguno",3:"ninguno"},
+  return desdeEstado(est,{salidor:pos.starter||0,sistemas:{0:cfgPorDefecto(),1:cfgPorDefecto(),2:cfgPorDefecto(),3:cfgPorDefecto()},
     modo:"simulador",id:nuevoId(),titulo:titulo||"Importada",fecha:ahoraISO()});
 }
 
@@ -1097,7 +1192,7 @@ $("#tbPegar").onclick=()=>{
 function cargarPartida(p){
   let est;
   try{ est=aEstado(p); }catch(e){ toast("Partida inválida"); return; }
-  [0,1,2,3].forEach(i=>{ sistemas[i]=est.sistemas[i]||"ninguno"; });
+  ponerSistemas(est.sistemas);
   simStarter=est.salidor; simDealMode=p.modo==="vivo"?"en vivo":"guardada";
   owner={}; ["S","E","N","O"].forEach((L,i)=>{ (p.manos[L]||[]).forEach(k=>{owner[k]=i;}); });
 
@@ -1252,7 +1347,7 @@ function analisisSalir(){analisis=null;}
 // monta GS con la posicion del cursor (solo para pintar y para Mano/Sugerir/Prob)
 function analisisPintar(){
   const p=analisis.partida, pos=posicionEn(p,analisis.n);
-  [0,1,2,3].forEach(i=>{sistemas[i]=pos.sistemas[i]||"ninguno";});
+  ponerSistemas(pos.sistemas);
   simStarter=pos.salidor; simDealMode=p.modo==="vivo"?"en vivo":"guardada";
   GS={hands:["S","E","N","O"].map(L=>new Set(pos.manos[L]||[])),
       ends:null,sequence:[],current:pos.current,passes:pos.passes,over:false,
@@ -1299,7 +1394,7 @@ function panelHistorial(){
   const filas=p.jugadas.map(j=>{
     const marca=j.veredicto?`<b class="vd v-${j.veredicto}">${ICONO[j.veredicto]}</b>`:"";
     const com=j.comentario?`<span title="${j.comentario.replace(/"/g,"'")}">💬</span>`:"";
-    const txt=j.pase?"pasa":`${j.ficha}${j.lado?" "+(j.lado==="I"?"izq":"der"):""}${j.pensada?" · "+j.pensada:""}`;
+    const txt=j.pase?"pasa":`${j.ficha}${j.lado?" "+(j.lado==="I"?"izq":"der"):""}${j.pensada?" · "+j.pensada+(j.sistema?`<span class="muted"> (${SIS_CORTO[j.sistema]})</span>`:""):""}`;
     return `<div class="row histrow${analisis.n===j.n?" aqui":""}" data-jug="${j.n}">
       <span>${j.n}. <b>${j.jugador}</b> ${txt}</span><span>${marca} ${com}</span></div>`;
   }).join("");
@@ -1338,6 +1433,19 @@ function panelJugada(n){
   const jugado=j.pase?null:j.ficha;
   const difiere=sug&&jugado&&sug.recomendada.ficha!==jugado;
   const bot=(v,txt)=>`<button class="btn ${j.veredicto===v?"gold":"ghost"}" data-vd="${v===null?"":v}">${txt}</button>`;
+  /* El sistema de la jugada solo existe para un combinado: es con cual estaba
+     jugando en ese momento. En analisis se puede corregir; en una partida
+     compartida solo se mira. */
+  const cfgJ=configJugador((p.jugadores||{})[j.jugador]);
+  const esComb=cfgJ.sistema==="combinado"&&!j.pase;
+  const sisJ=esComb?(j.sistema||cfgJ.inicial):null;
+  const botSis=(v,txt)=>`<button class="btn ${sisJ===v?"gold":"ghost"}" data-sis="${v}">${txt}</button>`;
+  const bloqueSis=!esComb?"":`<div class="probpanel" style="margin-top:8px">
+      <div class="muted" style="font-size:.72rem;margin-bottom:4px">Sistema de esta jugada (${j.jugador} juega combinado):</div>
+      ${analisis.soloLectura
+        ? `<div class="row"><span>combinado → <b>${NOMBRE_SIS[sisJ]}</b></span><span class="muted">${j.sistema?"registrado":"por defecto"}</span></div>`
+        : `<div class="btnrow grow">${botSis("clasico","Clásico")}${botSis("moderno","Moderno")}</div>`}
+    </div>`;
   dpanel(`<div class="ovcard" style="max-height:82vh;overflow:auto">
     <div class="center" style="margin-bottom:4px"><b>Jugada ${n} · ${j.jugador}</b></div>
     <div class="center" style="margin-bottom:6px">${j.pase?'<span class="muted">pasa</span>'
@@ -1352,6 +1460,7 @@ function panelJugada(n){
       <label class="fld">Comentario</label>
       <textarea id="jComent" class="txtpartida" style="min-height:60px">${(j.comentario||"").replace(/</g,"&lt;")}</textarea>`}
     </div>
+    ${bloqueSis}
     <div class="probpanel" style="margin-top:8px">
       <div class="muted" style="font-size:.72rem;margin-bottom:4px">Sugerir aquí (solo con lo que ${j.jugador} sabía):</div>
       ${!est?'<div class="muted">No se conoce su mano.</div>'
@@ -1373,6 +1482,10 @@ function panelJugada(n){
     </div></div>`);
   document.querySelectorAll("#dpanel [data-vd]").forEach(b=>b.onclick=()=>{
     j.veredicto=b.dataset.vd||null; panelJugada(n);
+  });
+  document.querySelectorAll("#dpanel [data-sis]").forEach(b=>b.onclick=()=>{
+    if($("#jComent")) j.comentario=$("#jComent").value;
+    j.sistema=b.dataset.sis; analisisPintar(); panelJugada(n);
   });
   const gb=$("#jGuardar"); if(gb) gb.onclick=()=>{ j.comentario=$("#jComent").value; guardarAnalisis(); panelHistorial(); };
   $("#jVolver").onclick=()=>{ if($("#jComent")) j.comentario=$("#jComent").value; panelHistorial(); };
@@ -1609,6 +1722,172 @@ function guardarCompartida(){
   $("#gRempl").onclick=()=>meter(p.id);
   $("#gDupl").onclick=()=>{p.titulo=(p.titulo||"")+" (copia)";meter(nuevoId());};
 }
+
+/* ================= barra de la mesa: Mesa / IA / Partida =================
+   La barra lleva suelto solo lo que se usa jugando (Atras, Pasa, Mano,
+   Sugerir) y tres menus con el resto: 7 elementos en vez de 20, para que quepa
+   sin scroll horizontal desde 320px. Lo que no aplica ahora sale DESHABILITADO
+   CON SU MOTIVO, nunca oculto, para que nada "desaparezca" de la vista.
+   Mientras un menu esta abierto hay un telon transparente por encima del
+   tapete: asi cerrarlo tocando fuera no dispara una jugada ni un arrastre. */
+
+let trigAbierto=null, menuTelon=null;
+const popDe=t=>document.getElementById(t.getAttribute("aria-controls"));
+const itemsDe=pop=>Array.prototype.slice.call(pop.querySelectorAll(".mi"));
+
+function soloLectura(){return enAnalisis()&&!!analisis.soloLectura;}
+function hayJugadas(){const p=partidaActual();return !!(p&&p.jugadas&&p.jugadas.length);}
+
+/* "" = se puede; cualquier otra cosa es el motivo por el que no. */
+function motivoBoton(id){
+  const sinMano="Primero reparte";
+  switch(id){
+    case "sUndo":   if(!GS)return sinMano; if(!GS.history.length)return "Ya estas al inicio"; return "";
+    case "sStart":  if(!GS)return sinMano; if(!GS.history.length&&!GS.initial)return "Ya estas al inicio"; return "";
+    case "tbPasa":  if(!GS)return sinMano;
+                    if(GS.over)return "La ronda ya termino";
+                    if(soloLectura())return "Partida compartida: solo lectura";
+                    if(aiBestMovesDeep(GS.hands,GS.ends,GS.current,GS.passes).length)
+                      return ROLE[GS.current]+" si tiene jugada";
+                    return "";
+    case "tbMano":  if(!GS&&!dealCompleto())return "Primero reparte"; return "";
+    case "tbSug":   if(!GS)return sinMano;
+                    if(GS.over)return "La ronda ya termino";
+                    if(GS.current!==0)return "No es tu turno (le toca a "+ROLE[GS.current]+")";
+                    return "";
+    case "aiOne": case "aiAll":
+                    if(!GS)return sinMano;
+                    if(GS.over)return "La ronda ya termino";
+                    if(soloLectura())return "Partida compartida: solo lectura";
+                    return "";
+    case "winProb": if(!GS)return sinMano; if(GS.over)return "La ronda ya termino"; return "";
+    case "tbBulk":  if(!dealCompleto())return "Primero reparte";
+                    if(simStarter===null)return "Falta elegir quien sale";
+                    return "";
+    case "savePos": case "tbVer": case "rotView":
+                    if(!GS)return sinMano; return "";
+    case "tbGuardar": case "tbGuardarComo":
+                    if(soloLectura())return id==="tbGuardar"?"":"Guardala primero en tu biblioteca";
+                    if(enAnalisis()&&analisis.n<analisis.partida.jugadas.length)
+                      return "Estas en la jugada "+analisis.n+" de "+analisis.partida.jugadas.length+
+                             ": vuelve al final (⏭) para no recortarla";
+                    if(!hayJugadas())return "Todavia no hay jugadas";
+                    return "";
+    case "tbCopiar": case "tbEnlace":
+                    if(!hayJugadas())return "Todavia no hay jugadas"; return "";
+  }
+  return "";
+}
+
+/* cambia el rotulo sin borrar el icono ni la linea del motivo */
+function rotulo(id,txt,icono){
+  const el=document.getElementById(id); if(!el)return;
+  const tx=el.querySelector(".tx"); if(!tx){el.textContent=txt;return;}
+  const por=tx.querySelector(".por");
+  tx.textContent=txt; if(por)tx.appendChild(por);
+  if(icono){const ic=el.querySelector(".ic"); if(ic)ic.textContent=icono;}
+}
+
+function marcarBoton(el,motivo){
+  if(motivo)el.setAttribute("aria-disabled","true"); else el.removeAttribute("aria-disabled");
+  const tx=el.querySelector(".tx");
+  // el boton suelto no tiene sitio para el motivo: va en el title (y al tocarlo, en un aviso)
+  if(!tx){ if(motivo)el.title=motivo; else el.removeAttribute("title"); return; }
+  let por=tx.querySelector(".por");
+  if(motivo){
+    if(!por){por=document.createElement("span");por.className="por";tx.appendChild(por);}
+    por.textContent=motivo;
+  }else if(por)por.remove();
+}
+
+function actualizarBarra(){
+  const barra=document.getElementById("dtoolbar"); if(!barra)return;
+  barra.querySelectorAll(".tb:not(.mtrig), .mi").forEach(el=>{
+    marcarBoton(el, el.id?motivoBoton(el.id):"");
+  });
+}
+
+function cerrarMenu(devolverFoco){
+  if(!trigAbierto)return;
+  const pop=popDe(trigAbierto);
+  if(pop){pop.hidden=true;pop.classList.remove("arriba","derecha");pop.style.maxHeight="";}
+  trigAbierto.setAttribute("aria-expanded","false");
+  const t=trigAbierto; trigAbierto=null;
+  if(menuTelon){menuTelon.remove();menuTelon=null;}
+  if(devolverFoco){try{t.focus();}catch(e){}}
+}
+
+/* si no cabe debajo se abre hacia arriba, y nunca se sale por la derecha */
+function colocarMenu(pop,t){
+  pop.classList.remove("arriba","derecha"); pop.style.maxHeight="";
+  const tr=t.getBoundingClientRect();
+  let r=pop.getBoundingClientRect();
+  if(r.right>window.innerWidth-6){pop.classList.add("derecha");r=pop.getBoundingClientRect();}
+  const abajo=window.innerHeight-tr.bottom-12, arriba=tr.top-12;
+  const haceArriba=r.height>abajo&&arriba>abajo;
+  if(haceArriba)pop.classList.add("arriba");
+  pop.style.maxHeight=Math.max(140,Math.floor(haceArriba?arriba:abajo))+"px";
+}
+
+function abrirMenu(t){
+  if(trigAbierto===t){cerrarMenu(true);return;}
+  cerrarMenu(false);
+  const pop=popDe(t); if(!pop)return;
+  actualizarBarra();
+  const tabla=document.querySelector(".dtable")||document.body;
+  menuTelon=document.createElement("div");
+  menuTelon.className="mback";
+  menuTelon.addEventListener("click",ev=>{ev.stopPropagation();ev.preventDefault();cerrarMenu(false);});
+  tabla.appendChild(menuTelon);
+  pop.hidden=false; t.setAttribute("aria-expanded","true"); trigAbierto=t;
+  colocarMenu(pop,t);
+}
+
+function focoEn(pop,i){
+  const it=itemsDe(pop); if(!it.length)return;
+  it[(i%it.length+it.length)%it.length].focus();
+}
+
+document.querySelectorAll("#dtoolbar .mtrig").forEach(t=>{
+  t.addEventListener("click",ev=>{ev.preventDefault();ev.stopPropagation();abrirMenu(t);});
+  t.addEventListener("keydown",ev=>{
+    if(ev.key==="ArrowDown"||ev.key==="Enter"||ev.key===" "){
+      ev.preventDefault(); if(trigAbierto!==t)abrirMenu(t); focoEn(popDe(t),0);
+    }else if(ev.key==="ArrowUp"){
+      ev.preventDefault(); if(trigAbierto!==t)abrirMenu(t); focoEn(popDe(t),-1);
+    }else if(ev.key==="Escape"){cerrarMenu(true);}
+  });
+});
+
+document.querySelectorAll("#dtoolbar .pop").forEach(pop=>{
+  pop.addEventListener("keydown",ev=>{
+    const i=itemsDe(pop).indexOf(document.activeElement);
+    if(ev.key==="ArrowDown"){ev.preventDefault();focoEn(pop,i+1);}
+    else if(ev.key==="ArrowUp"){ev.preventDefault();focoEn(pop,i-1);}
+    else if(ev.key==="Home"){ev.preventDefault();focoEn(pop,0);}
+    else if(ev.key==="End"){ev.preventDefault();focoEn(pop,-1);}
+    else if(ev.key==="Escape"){ev.preventDefault();cerrarMenu(true);}
+    else if(ev.key==="Tab"){cerrarMenu(false);}
+  });
+  // elegir una opcion cierra el menu; el handler propio del boton ya corrio
+  pop.addEventListener("click",ev=>{if(ev.target.closest(".mi"))cerrarMenu(false);});
+});
+
+/* un boton deshabilitado no hace nada, pero DICE por que (en tactil no hay
+   tooltip). En captura, para llegar antes que su propio onclick. */
+document.addEventListener("click",ev=>{
+  const b=ev.target.closest('#dtoolbar [aria-disabled="true"]');
+  if(!b)return;
+  ev.stopPropagation();ev.preventDefault();
+  const motivo=b.getAttribute("title")||((b.querySelector(".por")||{}).textContent||"");
+  if(motivo)toast(motivo);
+},true);
+
+document.addEventListener("keydown",ev=>{if(ev.key==="Escape"&&trigAbierto)cerrarMenu(true);});
+window.addEventListener("resize",()=>cerrarMenu(false));
+
+$("#tbGuardar").onclick=()=>{ if(soloLectura()){guardarCompartida();return;} guardarEnBiblioteca(false); };
+$("#tbGuardarComo").onclick=()=>guardarEnBiblioteca(true);
 
 // arranque: entra directo a la mesa, vacía hasta que se reparta (Al Azar / Reparto)
 buildPicker();buildOwnerGrid();

@@ -11,12 +11,29 @@ var _con = (typeof reconstruirMesa === "undefined" && typeof require !== "undefi
   ? require("./conocimiento.js") : null;
 var _reconstruir = _con ? _con.reconstruirMesa : reconstruirMesa;
 var _ficha = _con ? _con.ficha : ficha;
+var _config = _con ? _con.configJugador : configJugador;
 
 const ASIENTOS = ["S", "E", "N", "O"];
 const SEAT = { S: 0, E: 1, N: 2, O: 3 };
 const VEREDICTOS = { correcta: "✓", dudosa: "?", error: "✗" };
 const POR_SIMBOLO = { "✓": "correcta", "?": "dudosa", "✗": "error" };
 const VERSION = 1;
+const SISTEMAS_OK = ["ninguno", "clasico", "moderno", "combinado"];
+const SALIDAS_OK = ["ninguna", "fuerza", "calidad"];
+const SUFIJO = { clasico: "/C", moderno: "/M" };
+const POR_SUFIJO = { C: "clasico", M: "moderno" };
+
+/* La configuracion de un jugador se guarda ESCUETA: solo lo que no es el valor
+   por defecto. Asi una partida que no usa nada de esto queda igual que antes,
+   y las partidas y enlaces guardados sin estos campos siguen abriendo: lo que
+   falte lo pone configJugador(). */
+function jugadorMinimo(nombre, cfg) {
+  const c = _config(cfg);
+  const j = { nombre: nombre || null, sistema: c.sistema };
+  if (c.sistema === "combinado" || c.inicial !== "moderno") j.combinado = { inicial: c.inicial };
+  if (c.salida !== "ninguna") j.salida = c.salida;
+  return j;
+}
 
 const letra = i => ASIENTOS[i];
 const asiento = L => SEAT[String(L).toUpperCase()];
@@ -46,23 +63,27 @@ function desdeEstado(estado, opciones) {
 
   const jugadores = {};
   ASIENTOS.forEach((L, p) => {
-    jugadores[L] = {
-      nombre: (o.nombres && o.nombres[p]) || null,
-      sistema: (o.sistemas && o.sistemas[p]) || "ninguno",
-    };
+    jugadores[L] = jugadorMinimo((o.nombres && o.nombres[p]) || null, (o.sistemas || {})[p]);
   });
 
   let n = 0;
   const jugadas = hist.map(h => {
     n++;
     if (h.paso) return { n: n, jugador: letra(h.jugador), pase: true };
-    return {
+    const j = {
       n: n, jugador: letra(h.jugador), ficha: norm(h.ficha),
       lado: h.punta === "I" || h.punta === "D" ? h.punta : null,
       pensada: h.pensada || null,
       veredicto: h.veredicto || null,
       comentario: h.comentario || "",
     };
+    /* Solo un combinado registra con que sistema jugo, y solo si dejo pensada:
+       la marca y el sistema viajan juntos o no viajan (el texto escribe el
+       sufijo detras de la pensada, asi que sin pensada no habria donde ponerlo). */
+    const cfg = _config((o.sistemas || {})[h.jugador]);
+    if (cfg.sistema === "combinado" && j.pensada &&
+        (h.sistema === "clasico" || h.sistema === "moderno")) j.sistema = h.sistema;
+    return j;
   });
 
   const p = {
@@ -105,6 +126,7 @@ function posicionEn(partida, n) {
     while (i < hechas.length && hechas[i].pase) i++;
     if (i < hechas.length) {
       sq.pensada = hechas[i].pensada || null;
+      sq.sistema = hechas[i].sistema || null;
       sq.veredicto = hechas[i].veredicto || null;
       i++;
     }
@@ -122,13 +144,15 @@ function posicionEn(partida, n) {
     manos[L] = quedan;
   });
 
+  // la config completa de cada asiento: {sistema, inicial, salida}
   const sistemas = {};
-  ASIENTOS.forEach((L, p) => { sistemas[p] = (partida.jugadores[L] || {}).sistema || "ninguno"; });
+  ASIENTOS.forEach((L, p) => { sistemas[p] = _config((partida.jugadores || {})[L]); });
 
   const hist = hechas.map(j => j.pase
     ? { jugador: asiento(j.jugador), paso: true, pensada: null, veredicto: j.veredicto || null, comentario: j.comentario || null }
     : { jugador: asiento(j.jugador), ficha: norm(j.ficha), punta: j.lado || null,
-        pensada: j.pensada || null, veredicto: j.veredicto || null, comentario: j.comentario || null });
+        pensada: j.pensada || null, sistema: j.sistema || null,
+        veredicto: j.veredicto || null, comentario: j.comentario || null });
 
   const ultimo = hechas.length ? asiento(hechas[hechas.length - 1].jugador) : null;
   const current = ultimo === null ? asiento(partida.salidor) : (ultimo + 1) % 4;
@@ -205,6 +229,20 @@ function validar(partida) {
   if (!Array.isArray(partida.jugadas)) { err("faltan las jugadas"); return { ok: false, errores: errores }; }
   if (!ASIENTOS.includes(partida.salidor)) err("salidor invalido: " + partida.salidor);
 
+  // configuracion de cada jugador: un valor que no entendemos es un error,
+  // no un silencioso "ninguno"
+  ASIENTOS.forEach(L => {
+    const j = (partida.jugadores || {})[L];
+    if (!j) return;
+    if (j.sistema !== undefined && j.sistema !== null && !SISTEMAS_OK.includes(j.sistema))
+      err("sistema desconocido de " + L + ": " + j.sistema, partida._lineaSistemas);
+    if (j.salida !== undefined && j.salida !== null && !SALIDAS_OK.includes(j.salida))
+      err("convencion de salida desconocida de " + L + ": " + j.salida, partida._lineaSalida);
+    const ini = j.combinado && j.combinado.inicial;
+    if (ini !== undefined && ini !== null && ini !== "clasico" && ini !== "moderno")
+      err("sistema inicial desconocido de " + L + ": " + ini, partida._lineaSistemas);
+  });
+
   // manos: 7 por mano y 28 distintas cuando estan las cuatro
   const completas = ASIENTOS.every(L => Array.isArray((partida.manos || {})[L]));
   if (completas) {
@@ -264,7 +302,8 @@ function validar(partida) {
 
 function aTexto(partida) {
   const L = [];
-  L.push("# Partida: " + (partida.titulo || "(sin titulo)"));
+  // sin titulo no se escribe la linea: asi la ida y vuelta es exacta
+  if (partida.titulo) L.push("# Partida: " + partida.titulo);
 
   const meta = [];
   if (partida.fecha) meta.push("Fecha: " + partida.fecha);
@@ -279,8 +318,18 @@ function aTexto(partida) {
   if (nombres.length) L.push("Jugadores: " + ASIENTOS.map(a =>
     a + " " + ((partida.jugadores[a] || {}).nombre || "-")).join(" · "));
 
-  L.push("Sistemas: " + ASIENTOS.map(a =>
-    a + " " + ((partida.jugadores[a] || {}).sistema || "ninguno")).join(" · "));
+  /* "Sistemas: S combinado desde moderno · E clasico · ..."
+     El "desde" solo aparece si hace falta, para no ensuciar las partidas que
+     no usan el combinado. */
+  L.push("Sistemas: " + ASIENTOS.map(a => {
+    const c = _config(partida.jugadores[a]);
+    return a + " " + c.sistema +
+      ((c.sistema === "combinado" || c.inicial !== "moderno") ? " desde " + c.inicial : "");
+  }).join(" · "));
+
+  // La convencion de salida solo se escribe si alguien marca su salida.
+  if (ASIENTOS.some(a => _config(partida.jugadores[a]).salida !== "ninguna"))
+    L.push("Salida: " + ASIENTOS.map(a => a + " " + _config(partida.jugadores[a]).salida).join(" · "));
 
   L.push("Manos: " + ASIENTOS.map(a => {
     const m = partida.manos[a];
@@ -293,7 +342,7 @@ function aTexto(partida) {
     if (j.pase) { L.push(j.n + ". " + j.jugador + " pasa"); return; }
     let s = j.n + ". " + j.jugador + " " + j.ficha;
     if (j.lado) s += " " + j.lado;
-    if (j.pensada) s += " " + j.pensada;
+    if (j.pensada) s += " " + j.pensada + (SUFIJO[j.sistema] || "");
     if (j.veredicto) s += " " + VEREDICTOS[j.veredicto];
     if (j.comentario) s += ' "' + j.comentario.replace(/"/g, "'") + '"';
     L.push(s);
@@ -336,10 +385,34 @@ function desdeTexto(texto) {
       p.etiquetas = linea.replace(/^etiquetas\s*:/i, "").split(/[,;]/).map(x => x.trim()).filter(Boolean); return;
     }
     if (/^sistemas\s*:/i.test(linea)) {
+      p._lineaSistemas = nLinea;
       trozos(linea.replace(/^sistemas\s*:/i, "")).forEach(t => {
         const q = t.trim().split(/\s+/);
         const a = String(q[0] || "").toUpperCase();
-        if (p.jugadores[a]) p.jugadores[a].sistema = (q[1] || "ninguno").toLowerCase();
+        if (!p.jugadores[a]) return;
+        const sis = (q[1] || "ninguno").toLowerCase();
+        if (!SISTEMAS_OK.includes(sis))
+          errores.push({ texto: 'no entiendo el sistema "' + q[1] + '" de ' + a, linea: nLinea });
+        p.jugadores[a].sistema = sis;
+        const k = q.findIndex(x => /^desde$/i.test(x));
+        if (k > 0 && q[k + 1]) {
+          const ini = q[k + 1].toLowerCase();
+          if (ini !== "clasico" && ini !== "moderno")
+            errores.push({ texto: 'no entiendo el sistema inicial "' + q[k + 1] + '" de ' + a, linea: nLinea });
+          p.jugadores[a].combinado = { inicial: ini };
+        }
+      }); return;
+    }
+    if (/^salida\s*:/i.test(linea)) {
+      p._lineaSalida = nLinea;
+      trozos(linea.replace(/^salida\s*:/i, "")).forEach(t => {
+        const q = t.trim().split(/\s+/);
+        const a = String(q[0] || "").toUpperCase();
+        if (!p.jugadores[a] || !q[1]) return;
+        const sal = q[1].toLowerCase();
+        if (!SALIDAS_OK.includes(sal))
+          errores.push({ texto: 'no entiendo la convencion de salida "' + q[1] + '" de ' + a, linea: nLinea });
+        p.jugadores[a].salida = sal;
       }); return;
     }
     if (/^jugadores\s*:/i.test(linea)) {
@@ -410,7 +483,10 @@ function desdeTexto(texto) {
       tok.forEach(x => {
         const u = x.toUpperCase();
         if (u === "I" || u === "D") j.lado = u;
-        else if (u === "CPP" || u === "SPP") j.pensada = u;
+        else if (/^(CPP|SPP)(\/[CM])?$/.test(u)) {
+          j.pensada = u.slice(0, 3);
+          if (u.length > 3) j.sistema = POR_SUFIJO[u[4]];
+        }
         else if (POR_SIMBOLO[x]) j.veredicto = POR_SIMBOLO[x];
         else if (/^(correcta|dudosa|error)$/i.test(x)) j.veredicto = x.toLowerCase();
         else errores.push({ texto: 'no entiendo "' + x + '" en la jugada ' + n, linea: nLinea });
@@ -423,6 +499,10 @@ function desdeTexto(texto) {
 
   // renumera por si el texto venia con numeros saltados
   p.jugadas.forEach((j, i) => { j.n = i + 1; });
+  /* La config queda escueta igual que al escribirla: si el texto repite un
+     valor por defecto no lo dejamos puesto, para que la ida y vuelta sea
+     exacta y una partida sin estos campos vuelva sin ellos. */
+  ASIENTOS.forEach(L => { p.jugadores[L] = jugadorMinimo(p.jugadores[L].nombre, p.jugadores[L]); });
   if (errores.length) p._errores = errores;
   return p;
 }
@@ -440,7 +520,7 @@ function normalizar(partida) {
 // quita los campos auxiliares del parser, para comparar ida y vuelta
 function limpiar(partida) {
   const c = JSON.parse(JSON.stringify(partida));
-  delete c._errores; delete c._lineaManos;
+  delete c._errores; delete c._lineaManos; delete c._lineaSistemas; delete c._lineaSalida;
   (c.jugadas || []).forEach(j => { delete j._linea; });
   return c;
 }

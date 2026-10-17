@@ -276,26 +276,79 @@ function asesorSalida(misFichas) {
 
    · clasico: informa el numero que CASTIGA.
    · moderno: informa el numero que GENERA.
-   Ver principios-domino.md §5.6. Las jugadas sucesivas (§5.4) y el sistema
-   combinado quedan fuera de esta version. */
-const SISTEMAS = ["ninguno", "clasico", "moderno"];
+   · combinado: el jugador decide EN CADA MOMENTO con cual juega. No hay regla
+     automatica de cambio: lo que vale es el sistema que quedo registrado al
+     hacer esa jugada; si no viene (partida vieja), el inicial de su config.
 
-/* pensadaPara({ficha, lado, numeroCastigado, numeroGenerado, mano, sistema, jugadas})
+   La PENSADA DE SALIDA es un eje APARTE del sistema (§6): se marca segun la
+   convencion elegida, sin importar con que sistema se juegue el resto.
+   · ninguna (por defecto): no marca la salida.
+   · fuerza: la decide el asesor de salida, y habla del PALO.
+   · calidad: habla de la MANO entera. Buena o Poderosa -> SPP; el resto, CPP.
+     Si una mano es Poderosa y Mala a la vez, manda Poderosa.
+   Asi, un jugador con sistema "ninguno" puede marcar su salida, y uno con
+   sistema puede no marcarla. Las jugadas sucesivas (§5.4) siguen fuera. */
+const SISTEMAS = ["ninguno", "clasico", "moderno", "combinado"];
+const SALIDAS = ["ninguna", "fuerza", "calidad"];
+
+/* configJugador(c) -> {sistema, inicial, salida}
+   Acepta la forma vieja ("clasico") y la nueva ({sistema, combinado:{inicial},
+   salida}). Todos los campos nuevos son opcionales: lo que falte, por defecto.
+   Asi una partida guardada antes de esto se lee sin tocarla. */
+function configJugador(c) {
+  const d = { sistema: "ninguno", inicial: "moderno", salida: "ninguna" };
+  if (!c) return d;
+  if (typeof c === "string") { if (SISTEMAS.includes(c)) d.sistema = c; return d; }
+  if (SISTEMAS.includes(c.sistema)) d.sistema = c.sistema;
+  const ini = (c.combinado && c.combinado.inicial) || c.inicial;
+  if (ini === "clasico" || ini === "moderno") d.inicial = ini;
+  if (SALIDAS.includes(c.salida)) d.salida = c.salida;
+  return d;
+}
+
+/* Que sistema rige UNA jugada concreta. Para el combinado manda el que quedo
+   registrado al jugarla; si no viene, el inicial. Devuelve null si no juega
+   con sistema. */
+function sistemaEnJuego(cfg, sistemaJugada) {
+  const c = configJugador(cfg);
+  if (c.sistema === "ninguno") return null;
+  if (c.sistema !== "combinado") return c.sistema;
+  return (sistemaJugada === "clasico" || sistemaJugada === "moderno") ? sistemaJugada : c.inicial;
+}
+
+/* pensadaPara({ficha, lado, numeroCastigado, numeroGenerado, mano, sistema,
+                 sistemaJugada, salida, jugadas})
    mano = mi mano ANTES de jugar (incluye la ficha). jugadas = lo ya puesto en
-   la mesa, para poder medir la fuerza adquirida. Devuelve "CPP", "SPP" o null. */
+   la mesa, para poder medir la fuerza adquirida.
+   sistema  = "clasico" (forma vieja) o la config entera del jugador.
+   sistemaJugada = para un combinado, con cual juega ESTA jugada.
+   salida   = convencion de salida, si se quiere forzar aparte de la config.
+   Devuelve "CPP", "SPP" o null. */
 function pensadaPara(o) {
-  const sistema = o.sistema || "ninguno";
-  if (sistema === "ninguno") return null;
+  const cfg = configJugador(o.sistema);
+  if (SALIDAS.includes(o.salida)) cfg.salida = o.salida;
   const t = ficha(o.ficha);
   if (!t) return null;
-  const mano = fichas(o.mano);
-  const cuantas = n => mano.filter(x => x[0] === n || x[1] === n).length;
 
-  // Salida: la decide el propio asesor de salida.
+  /* LA SALIDA, primero y aparte: la decide su convencion, no el sistema.
+     Por fuerza la resuelve el asesor de salida (habla del palo); por calidad
+     la resuelve la etiqueta de la mano (habla del juego), y ahi Poderosa manda
+     sobre Mala: un palo de cuatro es juego aunque sobren dobles y fallas. */
   if (o.numeroCastigado === null || o.numeroCastigado === undefined) {
+    if (cfg.salida === "ninguna") return null;
+    if (cfg.salida === "calidad") {
+      const et = analizarMano(o.mano).etiquetas;
+      return (et.includes("Poderosa") || et.includes("Buena")) ? "SPP" : "CPP";
+    }
     const sal = asesorSalida(o.mano);
     return sal ? sal.pensada : null;
   }
+
+  // El resto de la mano ya es cosa del sistema.
+  if (cfg.sistema === "ninguno") return null;
+  const sistema = sistemaEnJuego(cfg, o.sistemaJugada);
+  const mano = fichas(o.mano);
+  const cuantas = n => mano.filter(x => x[0] === n || x[1] === n).length;
 
   // Doble en partida: igual en los dos sistemas. CPP si me quedan mas de ese
   // numero aparte del doble; SPP si el doble era lo unico que tenia.
@@ -311,23 +364,38 @@ function pensadaPara(o) {
 }
 
 /* Lee las pensadas ya anotadas y devuelve lo que declaran sus autores.
-   Solo lee de jugadores con sistema clasico o moderno y pensada no nula. */
+   Cada pensada se lee con la CONFIGURACION DE QUIEN LA JUGO y con el sistema
+   que quedo registrado en esa jugada, nunca con la del que lee.
+   La salida por calidad no habla de un palo sino de la mano: va a `juego`. */
 function leerPensadas(secuencia, sistemas) {
-  const vacio = () => ({ tieneMas: new Set(), noTiene: new Set(), fuerte: new Set() });
+  const vacio = () => ({ tieneMas: new Set(), noTiene: new Set(), fuerte: new Set(), juego: null });
   const por = { 0: vacio(), 1: vacio(), 2: vacio(), 3: vacio() };
   const notas = [];
   (secuencia || []).forEach(s => {
-    const sis = (sistemas || {})[s.jugador];
-    if (!sis || sis === "ninguno" || !s.pensada) return;
+    const cfg = configJugador((sistemas || {})[s.jugador]);
+    if (!s.pensada) return;
     const t = ficha(s.ficha);
     if (!t) return;
+    const esSalida = s.castiga === null || s.castiga === undefined;
+    // la salida se lee por su convencion; el resto de la mano, por el sistema
+    if (esSalida ? cfg.salida === "ninguna" : cfg.sistema === "ninguno") return;
+    const sis = sistemaEnJuego(cfg, s.sistema);
     const gen = (s.genera || [])[0];
     const doble = t[0] === t[1];
     let n = null, dice = null;
-    if (doble) {
+    if (esSalida && cfg.salida === "calidad") {
+      por[s.jugador].juego = s.pensada === "SPP" ? "bueno" : "malo";
+      dice = s.pensada === "SPP" ? "salio declarando buen juego"
+                                 : "salio declarando juego malo o complicado";
+    } else if (doble) {
       n = t[0];
       if (s.pensada === "CPP") { por[s.jugador].tieneMas.add(n); dice = "tiene mas " + NOMBRE_PALO[n]; }
       else { por[s.jugador].noTiene.add(n); dice = "no le quedan mas " + NOMBRE_PALO[n]; }
+    } else if (esSalida) {
+      /* Salida mixta por fuerza: la marca del asesor habla del acompañamiento
+         de la ficha con la que sale, no de un numero de la mesa, asi que no se
+         le atribuye un palo concreto. Se deja la nota y nada mas. */
+      dice = s.pensada === "SPP" ? "salio sin pensada previa" : "salio con pensada previa";
     } else if (sis === "clasico") {
       n = s.castiga;
       if (n === null || n === undefined) return;
@@ -339,7 +407,10 @@ function leerPensadas(secuencia, sistemas) {
       if (s.pensada === "SPP") { por[s.jugador].fuerte.add(n); dice = "tiene fuerza en " + NOMBRE_PALO[n]; }
       else { dice = "sin fuerza en " + NOMBRE_PALO[n]; }
     }
-    notas.push({ jugador: s.jugador, ficha: s.ficha, pensada: s.pensada, sistema: sis, numero: n, dice: dice });
+    notas.push({ jugador: s.jugador, ficha: s.ficha, pensada: s.pensada,
+                 sistema: sis, sistemaDeclarado: cfg.sistema,
+                 convencion: esSalida ? cfg.salida : null, esSalida: esSalida,
+                 numero: n, dice: dice });
   });
   return { por: por, notas: notas };
 }
@@ -354,6 +425,10 @@ function leerPensadas(secuencia, sistemas) {
    Pesos iniciales, a afinar. Positivos animan, negativos frenan. */
 const PESOS_SUGERENCIA = {
   repetirSalidaFuerte:    20,   // P2+ repite la salida SPP del compañero (ahi tiene fuerza)
+  repetirSalidaCalidad:   10,   // §6  salio SPP por calidad: buen juego, pero no dice el palo
+  iniciativaPropia:        3,   // §6  salio CPP por calidad: toma tu la mano
+  dificultarBuenJuego:     8,   // P10 extra si un contrario declaro buen juego
+                                // (en 3 no llegaba a decidir nada: ver tests/calibrar.js)
   repetirCompanero:       10,   // P2  toca un palo que abrió el compañero
   castigarContrario:      10,   // P3  castiga un palo que generó un contrario
   facilitarCompanero:      9,   // P9  genera un palo que el compañero tiene
@@ -456,8 +531,29 @@ function sugerirJugada(estado) {
   const salidorSeat = sal.jugador !== undefined && sal.jugador !== null ? sal.jugador : estado.salidor;
   const salidorContrario = contrarios.includes(salidorSeat);
   const salidorCompanero = salidorSeat === companero;
-  // Salir SPP indica fuerza en ese palo; salir CPP a un doble no indica nada.
-  const paloSalidaFuerte = (salidorCompanero && sal.pensada === "SPP" && nums) ? nums : null;
+
+  /* La salida se lee con la convencion DEL QUE SALIO, no con la mia:
+     · fuerza  -> salir SPP indica fuerza en ese palo (CPP a un doble no dice nada);
+     · calidad -> la pensada habla de la mano entera, no del palo. */
+  const cfgSalidor = configJugador((estado.sistemas || {})[salidorSeat]);
+  // la convencion de salida no depende del sistema: quien no lleva sistema en
+  // partida puede haber marcado su salida igual, y se lee igual
+  const salidaPorCalidad = cfgSalidor.salida === "calidad";
+  const paloSalidaFuerte = (salidorCompanero && !salidaPorCalidad && sal.pensada === "SPP" && nums) ? nums : null;
+  const juegoSalidor = (salidaPorCalidad && sal.pensada) ? (sal.pensada === "SPP" ? "bueno" : "malo") : null;
+  const companeroBuenJuego = salidorCompanero && juegoSalidor === "bueno";
+  const companeroMalJuego  = salidorCompanero && juegoSalidor === "malo";
+  const contrarioBuenJuego = salidorContrario && juegoSalidor === "bueno";
+  const palosSalida = nums ? (nums[0] === nums[1] ? [nums[0]] : [nums[0], nums[1]]) : [];
+  // numeros que el compañero ha tocado FUERA de la salida: esos siguen siendo
+  // señal aunque su salida por calidad diga que lleva mal juego
+  const otrasDelCompanero = new Set();
+  secuencia.forEach(sq => {
+    if (sq.jugador !== companero) return;
+    if (sq.castiga === null || sq.castiga === undefined) return;   // la salida
+    (sq.genera || []).forEach(g => otrasDelCompanero.add(g));
+    otrasDelCompanero.add(sq.castiga);
+  });
 
   // Lecturas de pensada: solo de quien juega con sistema y dejo marca.
   const lectura = leerPensadas(secuencia, estado.sistemas || {});
@@ -506,10 +602,20 @@ function sugerirJugada(estado) {
                : paloSalidaFuerte.includes(m.castiga) ? m.castiga : null);
     const repiteGen = generoPor[companero].has(m.genera);
     const repiteCas = generoPor[companero].has(m.castiga);
+    const nRepe = repiteGen ? m.genera : repiteCas ? m.castiga : null;
+    // ¿el palo repetido viene SOLO de la salida? Entonces lo que valga depende
+    // de lo que declarase al salir; si lo ha vuelto a tocar, es señal aparte.
+    const soloDeLaSalida = nRepe !== null && salidorCompanero &&
+      palosSalida.includes(nRepe) && !otrasDelCompanero.has(nRepe);
     if (nSal !== null && nSal !== undefined)
       suma(P.repetirSalidaFuerte, "repite el " + NOMBRE_PALO[nSal] + ", la salida sin pensada de tu compañero", "P2+");
-    else if (repiteGen || repiteCas)
-      suma(P.repetirCompanero, "repite el " + NOMBRE_PALO[repiteGen ? m.genera : m.castiga] + " que abrio tu compañero", "P2");
+    else if (companeroBuenJuego && soloDeLaSalida)
+      suma(P.repetirSalidaCalidad, "repite el " + NOMBRE_PALO[nRepe] + ", con el que tu compañero salio declarando buen juego", "P2");
+    else if (companeroMalJuego && soloDeLaSalida)
+      razones.push({ peso: 0, principio: "P2", texto: "repetiria el " + NOMBRE_PALO[nRepe] +
+        ", pero tu compañero salio declarando juego malo: ahi no le ayudas" });
+    else if (nRepe !== null)
+      suma(P.repetirCompanero, "repite el " + NOMBRE_PALO[nRepe] + " que abrio tu compañero", "P2");
 
     // P3 - castigar lo que abrio el contrario. Dejar correr: si esa ficha es mi
     // llave, no la gasto por castigar; me guardo para cuando lo vuelva a mandar.
@@ -526,15 +632,23 @@ function sugerirJugada(estado) {
       suma(P.generarFallaCompanero, "abre " + NOMBRE_PALO[m.genera] + " y tu compañero fallo a ese numero", "P9");
 
     // P10 - dificultades al contrario
-    if (contrarios.some(c => fallaDe[c].has(m.genera)))
+    let aprieta = false;
+    if (contrarios.some(c => fallaDe[c].has(m.genera))) {
       suma(P.generarFallaContrario, "abre " + NOMBRE_PALO[m.genera] + ", numero al que fallo un contrario", "P10");
+      aprieta = true;
+    }
     if (contrarios.some(c => generoPor[c].has(m.genera)))
       suma(P.generarPaloContrario, "le sirve " + NOMBRE_PALO[m.genera] + " a un contrario, que lo abrio", "P10");
     if (m.nuevas[0] === m.nuevas[1]) {
       const n = m.nuevas[0];
-      if (contrarios.some(c => fallaDe[c].has(n)) || tengoFuerza(n))
+      if (contrarios.some(c => fallaDe[c].has(n)) || tengoFuerza(n)) {
         suma(P.cuadrarBien, "cuadra a " + NOMBRE_PALO[n] + ", numero que dominas o que falla un contrario", "P10");
+        aprieta = true;
+      }
     }
+    // el contrario salio declarando buen juego: hay que complicarselo
+    if (aprieta && contrarioBuenJuego)
+      suma(P.dificultarBuenJuego, "el contrario salio declarando buen juego: conviene apretarle", "P10");
 
     // P5/P6 y P7/P8 - por encima del contrario, por debajo del compañero
     if (salidorContrario && refSalida !== null && (m.genera > refSalida || m.castiga > refSalida))
@@ -561,8 +675,11 @@ function sugerirJugada(estado) {
       suma(P.lecturaCubrirContrario, "cubre " + NOMBRE_PALO[m.castiga] + ", que un contrario marco tener", "pensada");
 
     // P4 - indicar lo que tienes
-    if (tengoFuerza(m.genera))
+    if (tengoFuerza(m.genera)) {
       suma(P.generarFuerzaPropia, "abre " + NOMBRE_PALO[m.genera] + ", donde tienes fuerza", "P4");
+      if (companeroMalJuego)
+        suma(P.iniciativaPropia, "tu compañero salio con juego malo: lleva tu la mano por " + NOMBRE_PALO[m.genera], "P4");
+    }
 
     // irse de la falla / seguro
     const rI = puedo(m.nuevas[0]), rD = puedo(m.nuevas[1]);
@@ -655,6 +772,7 @@ function sugerirJugada(estado) {
 // Para poder probarlo con node fuera del navegador.
 if (typeof module !== "undefined" && module.exports) {
   module.exports = { analizarMano, asesorSalida, sugerirJugada, reconstruirMesa,
-                     pensadaPara, leerPensadas, SISTEMAS, ficha,
+                     pensadaPara, leerPensadas, configJugador, sistemaEnJuego,
+                     SISTEMAS, SALIDAS, ficha,
                      NOMBRE_PALO, ACOMP, PESOS_SUGERENCIA, PROB_DOBLES, PROB_FALLAS, FREQ_PALO };
 }

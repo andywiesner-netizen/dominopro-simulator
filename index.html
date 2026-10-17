@@ -120,28 +120,56 @@
       <div class="sub">La mesa completa se juega en horizontal</div>
     </div>
     <div class="dtable">
-      <div class="dtoolbar">
-        <button class="tb b-user" data-simdeal>← Reparto</button>
-        <button class="tb b-user" id="tbLive">🎯 Asistente en vivo</button>
-        <button class="tb b-azar" id="tbAzar">🎲 Al Azar</button>
-        <button class="tb b-rew" id="sStart">⏮ Inicio</button>
-        <button class="tb b-back" id="sUndo">◀ Atrás</button>
-        <button class="tb b-pasa" id="tbPasa">⏭ Pasa</button>
-        <button class="tb b-sug" id="aiOne">🤖 IA turno</button>
-        <button class="tb b-sim" id="aiAll">⏭️ IA final</button>
-        <button class="tb b-man" id="winProb">🎲 Prob</button>
-        <button class="tb b-man" id="tbMano">🔎 Mano</button>
-        <button class="tb b-sug" id="tbSug">💡 Sugerir</button>
-        <button class="tb b-sim" id="tbBulk">🧮 Simular</button>
-        <button class="tb b-guar" id="savePos">💾 Guardar</button>
-        <button class="tb b-car" id="openSaves">📂 Cargar</button>
-        <button class="tb b-copiar" id="tbCopiar">📋 Copiar</button>
-        <button class="tb b-copiar" id="tbPegar">📥 Pegar</button>
-        <button class="tb b-sim" id="tbEnlace">🔗 Enlace</button>
-        <button class="tb b-car" id="tbBiblio">📚 Partidas</button>
-        <button class="tb b-user" id="tbDatos">🏷️ Datos</button>
-        <button class="tb b-copiar" id="tbVer">👁 Ver todas</button>
-        <button class="tb b-copiar" id="rotView">🔄 Girar</button>
+      <div class="dtoolbar" id="dtoolbar">
+        <!-- Siempre visibles: lo que se usa jugando. Todo lo demas vive en los
+             tres menus, para que la barra quepa sin scroll desde 320px. -->
+        <button class="tb b-back" id="sUndo">&#9664; Atr&aacute;s</button>
+        <button class="tb b-pasa" id="tbPasa">&#9197; Pasa</button>
+        <button class="tb b-man" id="tbMano">&#128270; Mano</button>
+        <button class="tb b-sug" id="tbSug">&#128161; Sugerir</button>
+
+        <div class="menu" data-menu="mesa">
+          <button class="tb b-user mtrig" id="mtMesa" aria-haspopup="true" aria-expanded="false" aria-controls="popMesa">&#127924; Mesa<i>&#9662;</i></button>
+          <div class="pop" id="popMesa" role="menu" aria-labelledby="mtMesa" hidden>
+            <button class="mi" role="menuitem" id="tbAzar"><span class="ic">&#127922;</span><span class="tx">Repartir al azar</span></button>
+            <button class="mi" role="menuitem" data-simdeal><span class="ic">&#8592;</span><span class="tx">Ir al reparto</span></button>
+            <button class="mi" role="menuitem" id="sStart"><span class="ic">&#9198;</span><span class="tx">Volver al inicio</span></button>
+            <button class="mi" role="menuitem" id="tbLive"><span class="ic">&#127919;</span><span class="tx">Asistente en vivo</span></button>
+            <hr>
+            <button class="mi" role="menuitem" id="tbVer"><span class="ic">&#128065;</span><span class="tx">Ver todas</span></button>
+            <button class="mi" role="menuitem" id="rotView"><span class="ic">&#128260;</span><span class="tx">Girar la vista</span></button>
+            <hr>
+            <button class="mi" role="menuitem" id="savePos"><span class="ic">&#128248;</span><span class="tx">Guardar esta posici&oacute;n</span></button>
+            <button class="mi" role="menuitem" id="openSaves"><span class="ic">&#128193;</span><span class="tx">Posiciones guardadas</span></button>
+          </div>
+        </div>
+
+        <div class="menu" data-menu="ia">
+          <button class="tb b-sim mtrig" id="mtIA" aria-haspopup="true" aria-expanded="false" aria-controls="popIA">&#129302; IA<i>&#9662;</i></button>
+          <div class="pop" id="popIA" role="menu" aria-labelledby="mtIA" hidden>
+            <button class="mi" role="menuitem" id="aiOne"><span class="ic">&#129302;</span><span class="tx">Que juegue este turno</span></button>
+            <button class="mi" role="menuitem" id="aiAll"><span class="ic">&#9197;</span><span class="tx">Que juegue hasta el final</span></button>
+            <hr>
+            <button class="mi" role="menuitem" id="winProb"><span class="ic">&#127922;</span><span class="tx">Probabilidad de ganar</span></button>
+            <button class="mi" role="menuitem" id="tbBulk"><span class="ic">&#129518;</span><span class="tx">Simular muchas rondas</span></button>
+          </div>
+        </div>
+
+        <div class="menu" data-menu="partida">
+          <button class="tb b-car mtrig" id="mtPar" aria-haspopup="true" aria-expanded="false" aria-controls="popPar">&#128214; Partida<i>&#9662;</i></button>
+          <div class="pop" id="popPar" role="menu" aria-labelledby="mtPar" hidden>
+            <button class="mi" role="menuitem" id="tbGuardar"><span class="ic">&#128190;</span><span class="tx">Guardar partida</span></button>
+            <button class="mi" role="menuitem" id="tbGuardarComo"><span class="ic">&#128209;</span><span class="tx">Guardar como&hellip;</span></button>
+            <button class="mi" role="menuitem" id="tbBiblio"><span class="ic">&#128218;</span><span class="tx">Mis partidas</span></button>
+            <hr>
+            <button class="mi" role="menuitem" id="tbCopiar"><span class="ic">&#128203;</span><span class="tx">Copiar como texto</span></button>
+            <button class="mi" role="menuitem" id="tbPegar"><span class="ic">&#128229;</span><span class="tx">Pegar una partida</span></button>
+            <button class="mi" role="menuitem" id="tbEnlace"><span class="ic">&#128279;</span><span class="tx">Enlace para compartir</span></button>
+            <hr>
+            <button class="mi" role="menuitem" id="tbDatos"><span class="ic">&#127991;</span><span class="tx">T&iacute;tulo, etiquetas y notas</span></button>
+          </div>
+        </div>
+
         <span class="dscore" id="dscore"></span>
       </div>
       <div class="felt">
