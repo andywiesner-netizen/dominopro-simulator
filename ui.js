@@ -921,21 +921,40 @@ function conmutadorPensada(){
 /* ---- lectura de pensadas para el panel de Sugerir ---- */
 // "moderno", "combinado → clásico", y en la salida tambien la convencion
 function etiquetaLectura(n){
-  const sis=n.sistemaDeclarado==="combinado"?`combinado → ${NOMBRE_SIS[n.sistema]}`
-           :(NOMBRE_SIS[n.sistemaDeclarado]||n.sistemaDeclarado);
+  // De un combinado ajeno no se sabe con cual jugo: por eso se deduce.
+  const sis=n.sistemaDeclarado==="combinado"
+    ? (n.deducida?"combinado · hay que deducirlo":`combinado → ${NOMBRE_SIS[n.sistema]}`)
+    : (NOMBRE_SIS[n.sistemaDeclarado]||n.sistemaDeclarado);
   // quien no lleva sistema en partida solo tiene la convencion que enseñar
   if(n.esSalida&&n.convencion)
     return (n.sistemaDeclarado==="ninguno"?"":sis+" · ")+`salida por ${n.convencion}`;
   return sis;
 }
+/* Una lectura deducida se enseña entera, con las dos posibilidades y cual pesa
+   mas. Esconder la ambiguedad seria mentir: en la mesa tampoco se sabe. */
+function lineasDeduccion(n){
+  if(!n.deducida)return "";
+  const pct=x=>Math.round(x*100)+"%";
+  // el doble es el unico sitio donde los dos sistemas hablan del mismo numero
+  if(n.coinciden)
+    return `<div class="muted" style="font-size:.68rem">→ ${n.dice} <b>(los dos sistemas dicen lo mismo, así que es seguro)</b></div>`;
+  if(!n.opciones||n.opciones.length<2)
+    return `<div class="muted" style="font-size:.68rem;text-align:right">→ ${n.dice}</div>`;
+  const como={clasico:"si va en clásico",moderno:"si va en moderno"};
+  const filas=n.opciones.map(o=>
+    `<div class="muted" style="font-size:.68rem">· ${como[o.sistema]}, ${o.dice} — <b>${pct(o.peso)}</b></div>`).join("");
+  return filas+`<div class="muted" style="font-size:.66rem;font-style:italic">por el momento de la mano, lo primero es más probable</div>`;
+}
 function bloqueLecturas(lecturas){
   if(!lecturas||!lecturas.length)return "";
   const filas=lecturas.slice(-6).map(n=>
-    `<div class="row"><span>${ROLE[n.jugador]} jugó ${n.ficha} <b>${n.pensada}</b> <span class="muted">(${etiquetaLectura(n)})</span></span></div>
-     <div class="muted" style="font-size:.68rem;text-align:right">→ ${n.dice}</div>`).join("");
+    `<div class="row"><span>${ROLE[n.jugador]} jugó ${n.ficha} <b>${n.pensada}</b> <span class="muted">(${etiquetaLectura(n)})</span></span></div>`+
+    (n.deducida
+      ? lineasDeduccion(n)
+      : `<div class="muted" style="font-size:.68rem;text-align:right">→ ${n.dice}</div>`)).join("");
   return `<div class="probpanel" style="margin-top:8px">
     <div class="muted" style="font-size:.72rem;margin-bottom:4px">Lectura de pensadas:</div>${filas}
-    <div class="muted" style="font-size:.66rem;margin-top:4px">CPP = con pensada previa · SPP = sin pensada previa. En clásico la marca habla del número que castiga; en moderno, del que genera. La salida por calidad habla de la mano entera, no de un palo.</div>
+    <div class="muted" style="font-size:.66rem;margin-top:4px">CPP = con pensada previa · SPP = sin pensada previa. En clásico la marca habla del número que castiga; en moderno, del que genera. La salida por calidad habla de la mano entera, no de un palo. De quien juega combinado no se sabe con cuál va: se muestran las dos lecturas con lo que pesa cada una.</div>
   </div>`;
 }
 

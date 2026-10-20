@@ -363,54 +363,142 @@ function pensadaPara(o) {
   return a.porPalo[o.numeroGenerado].fuerza ? "SPP" : "CPP";
 }
 
+/* ---------- leer a un combinado: deducir, no mirar la marca ----------
+   La marca Clas/Mod de una jugada es informacion DEL QUE LA JUEGA: le sirve
+   para calcular su propia pensada. En la mesa, cuando tu companero juega CPP
+   no sabes si habla del numero que castiga o del que genera; deducirlo es la
+   habilidad. Por eso, al leer a un combinado NO se mira su marca: se calculan
+   LAS DOS lecturas y se reparte el peso entre ellas.
+
+   La formula vive aqui y solo aqui, porque la vamos a afinar con partidas
+   reales:
+
+     pesoModerno = base - caida * avance + dominio * (puntasSuyas - ajenas)/2
+     pesoClasico = 1 - pesoModerno
+
+   · avance  va de 0 (su primera ficha) a 1 (la septima): cuantas lleva puestas
+     ese jugador. Al principio de la mano se informa lo que se TIENE, que es
+     moderno; segun se cierra, lo que se CASTIGA, que es clasico.
+   · dominio son las dos puntas abiertas ANTES de esa jugada: cuantas las puso
+     su pareja menos cuantas la contraria, de -2 a +2. Quien lleva la mano
+     informa en moderno; quien defiende, en clasico.
+   · el resultado se recorta a [min, max]: ninguna de las dos lecturas se
+     descarta nunca del todo, porque nunca se sabe con certeza.
+
+   Donde SI coinciden las dos lecturas es en el doble: ahi el numero castigado
+   y el generado son el mismo, los dos sistemas dicen lo mismo y la lectura es
+   firme (peso 1). En ficha mixta hablan siempre de numeros distintos, asi que
+   el peso se reparte siempre. */
+const PESOS_COMBINADO = { base: 0.75, caida: 0.50, dominio: 0.12, min: 0.10, max: 0.90 };
+
+function pesoModernoEn(avance, dominio) {
+  const K = PESOS_COMBINADO;
+  const v = K.base - K.caida * avance + K.dominio * (dominio / 2);
+  return +Math.min(K.max, Math.max(K.min, v)).toFixed(3);
+}
+const mismoEquipo = (a, b) => a !== null && b !== null && (a - b) % 2 === 0;
+
 /* Lee las pensadas ya anotadas y devuelve lo que declaran sus autores.
    Cada pensada se lee con la CONFIGURACION DE QUIEN LA JUGO y con el sistema
    que quedo registrado en esa jugada, nunca con la del que lee.
    La salida por calidad no habla de un palo sino de la mano: va a `juego`. */
-function leerPensadas(secuencia, sistemas) {
-  const vacio = () => ({ tieneMas: new Set(), noTiene: new Set(), fuerte: new Set(), juego: null });
+function leerPensadas(secuencia, sistemas, opciones) {
+  const o = opciones || {};
+  // Los cajones son Mapa numero -> peso. Una lectura sin ambiguedad pesa 1, asi
+  // que quien juega clasico o moderno se lee exactamente igual que antes.
+  const vacio = () => ({ tieneMas: new Map(), noTiene: new Map(), fuerte: new Map(), juego: null });
   const por = { 0: vacio(), 1: vacio(), 2: vacio(), 3: vacio() };
+  const anota = (j, cual, n, peso) => {
+    const m = por[j][cual];
+    if (!m.has(n) || m.get(n) < peso) m.set(n, peso);
+  };
   const notas = [];
+
+  // estado que hace falta para ponderar: cuantas lleva jugadas cada uno y
+  // quien puso cada punta, ambos ANTES de la jugada que se esta leyendo
+  const puestas = { 0: 0, 1: 0, 2: 0, 3: 0 };
+  let duenoPunta = [null, null];
+
   (secuencia || []).forEach(s => {
     const cfg = configJugador((sistemas || {})[s.jugador]);
-    if (!s.pensada) return;
     const t = ficha(s.ficha);
-    if (!t) return;
     const esSalida = s.castiga === null || s.castiga === undefined;
+    const avance = Math.min(1, puestas[s.jugador] / 6);
+    const dominio = [0, 1].reduce((d, i) => d + (duenoPunta[i] === null ? 0
+      : mismoEquipo(duenoPunta[i], s.jugador) ? 1 : -1), 0);
+    // avanzar el estado para la siguiente, pase lo que pase con esta
+    const tras = () => {
+      if (!t) return;
+      puestas[s.jugador]++;
+      if (esSalida) duenoPunta = [s.jugador, s.jugador];
+      else duenoPunta[s.punta === "I" ? 0 : 1] = s.jugador;
+    };
+
+    if (!s.pensada || !t) { tras(); return; }
     // la salida se lee por su convencion; el resto de la mano, por el sistema
-    if (esSalida ? cfg.salida === "ninguna" : cfg.sistema === "ninguno") return;
-    const sis = sistemaEnJuego(cfg, s.sistema);
+    if (esSalida ? cfg.salida === "ninguna" : cfg.sistema === "ninguno") { tras(); return; }
+
     const gen = (s.genera || [])[0];
     const doble = t[0] === t[1];
-    let n = null, dice = null;
+    /* La marca Clas/Mod solo se usa para las jugadas del propio lector, que es
+       el unico que sabe con que estaba jugando. Para las ajenas se deduce. */
+    const propia = o.yo !== undefined && o.yo !== null && s.jugador === o.yo;
+    const deduce = cfg.sistema === "combinado" && !propia;
+    const sis = sistemaEnJuego(cfg, propia ? s.sistema : null);
+
+    let n = null, dice = null, opcs = null, coinciden = false;
+
     if (esSalida && cfg.salida === "calidad") {
       por[s.jugador].juego = s.pensada === "SPP" ? "bueno" : "malo";
       dice = s.pensada === "SPP" ? "salio declarando buen juego"
                                  : "salio declarando juego malo o complicado";
     } else if (doble) {
-      n = t[0];
-      if (s.pensada === "CPP") { por[s.jugador].tieneMas.add(n); dice = "tiene mas " + NOMBRE_PALO[n]; }
-      else { por[s.jugador].noTiene.add(n); dice = "no le quedan mas " + NOMBRE_PALO[n]; }
+      // los dos sistemas dicen lo mismo: lectura firme, sin ambiguedad
+      n = t[0]; coinciden = true;
+      if (s.pensada === "CPP") { anota(s.jugador, "tieneMas", n, 1); dice = "tiene mas " + NOMBRE_PALO[n]; }
+      else { anota(s.jugador, "noTiene", n, 1); dice = "no le quedan mas " + NOMBRE_PALO[n]; }
     } else if (esSalida) {
       /* Salida mixta por fuerza: la marca del asesor habla del acompañamiento
          de la ficha con la que sale, no de un numero de la mesa, asi que no se
          le atribuye un palo concreto. Se deja la nota y nada mas. */
       dice = s.pensada === "SPP" ? "salio sin pensada previa" : "salio con pensada previa";
+    } else if (deduce) {
+      const pm = pesoModernoEn(avance, dominio), pc = +(1 - pm).toFixed(3);
+      opcs = [];
+      if (gen !== null && gen !== undefined) {
+        if (s.pensada === "SPP") anota(s.jugador, "fuerte", gen, pm);
+        opcs.push({ sistema: "moderno", numero: gen, peso: pm,
+          dice: (s.pensada === "SPP" ? "tiene fuerza en " : "no tiene fuerza en ") + NOMBRE_PALO[gen] });
+      }
+      if (s.castiga !== null && s.castiga !== undefined) {
+        if (s.pensada === "CPP") anota(s.jugador, "tieneMas", s.castiga, pc);
+        else anota(s.jugador, "noTiene", s.castiga, pc);
+        opcs.push({ sistema: "clasico", numero: s.castiga, peso: pc,
+          dice: (s.pensada === "CPP" ? "le quedan mas " : "esa era su ultima de ") + NOMBRE_PALO[s.castiga] });
+      }
+      opcs.sort((a, b) => b.peso - a.peso);
+      coinciden = opcs.length === 2 && opcs[0].numero === opcs[1].numero;
+      if (coinciden) opcs.forEach(x => { x.peso = 1; });
+      if (opcs.length) { n = opcs[0].numero; dice = opcs[0].dice; }
     } else if (sis === "clasico") {
       n = s.castiga;
-      if (n === null || n === undefined) return;
-      if (s.pensada === "CPP") { por[s.jugador].tieneMas.add(n); dice = "tiene mas " + NOMBRE_PALO[n]; }
-      else { por[s.jugador].noTiene.add(n); dice = "esa era su ultima de " + NOMBRE_PALO[n]; }
+      if (n === null || n === undefined) { tras(); return; }
+      if (s.pensada === "CPP") { anota(s.jugador, "tieneMas", n, 1); dice = "tiene mas " + NOMBRE_PALO[n]; }
+      else { anota(s.jugador, "noTiene", n, 1); dice = "esa era su ultima de " + NOMBRE_PALO[n]; }
     } else {                                   // moderno
       n = gen;
-      if (n === null || n === undefined) return;
-      if (s.pensada === "SPP") { por[s.jugador].fuerte.add(n); dice = "tiene fuerza en " + NOMBRE_PALO[n]; }
+      if (n === null || n === undefined) { tras(); return; }
+      if (s.pensada === "SPP") { anota(s.jugador, "fuerte", n, 1); dice = "tiene fuerza en " + NOMBRE_PALO[n]; }
       else { dice = "sin fuerza en " + NOMBRE_PALO[n]; }
     }
+
     notas.push({ jugador: s.jugador, ficha: s.ficha, pensada: s.pensada,
-                 sistema: sis, sistemaDeclarado: cfg.sistema,
+                 sistema: deduce ? null : sis, sistemaDeclarado: cfg.sistema,
                  convencion: esSalida ? cfg.salida : null, esSalida: esSalida,
+                 deducida: !!deduce, opciones: opcs, coinciden: coinciden,
+                 avance: +avance.toFixed(3), dominio: dominio,
                  numero: n, dice: dice });
+    tras();
   });
   return { por: por, notas: notas };
 }
@@ -556,9 +644,17 @@ function sugerirJugada(estado) {
   });
 
   // Lecturas de pensada: solo de quien juega con sistema y dejo marca.
-  const lectura = leerPensadas(secuencia, estado.sistemas || {});
-  const dice = (j, cual, n) => lectura.por[j] && lectura.por[j][cual].has(n);
-  const algunContrario = (cual, n) => contrarios.some(c => dice(c, cual, n));
+  /* Se le pasa quien lee: de SUS jugadas si se sabe el sistema, de las ajenas
+     se deduce. Cada lectura trae su peso (1 si no hay ambiguedad), y ese peso
+     escala lo que empuja, que es justo lo que hace un jugador: fiarse menos de
+     lo que no esta seguro. */
+  const lectura = leerPensadas(secuencia, estado.sistemas || {}, { yo: yo });
+  const peso = (j, cual, n) => {
+    const m = lectura.por[j] && lectura.por[j][cual];
+    return m && m.has(n) ? m.get(n) : 0;
+  };
+  const pesoContrario = (cual, n) => Math.max.apply(null, [0].concat(contrarios.map(c => peso(c, cual, n))));
+  const escala = (base, p) => (p ? +(base * p).toFixed(2) : 0);
 
   const analisis = analizarMano(estado.miMano, secuencia.map(s => s.ficha));
   const tengoFuerza = n => analisis.porPalo[n].fuerza;
@@ -657,22 +753,27 @@ function sugerirJugada(estado) {
       suma(P.debajoSalidaCompanero, "va por debajo del " + refSalida + " con el que salio tu compañero", "P7/P8");
 
     // Lecturas de pensada (informacion legitima: la marca esta en la mesa)
-    if (dice(companero, "tieneMas", m.genera) || dice(companero, "fuerte", m.genera))
-      suma(P.lecturaCompanero, "tu compañero marco " + NOMBRE_PALO[m.genera] + ": ahi tiene juego", "pensada");
-    else if (dice(companero, "noTiene", m.genera))
-      suma(P.lecturaCompaneroNo, "tu compañero marco que no le quedan " + NOMBRE_PALO[m.genera], "pensada");
+    const pTiene = Math.max(peso(companero, "tieneMas", m.genera), peso(companero, "fuerte", m.genera));
+    const pNoTiene = peso(companero, "noTiene", m.genera);
+    if (pTiene)
+      suma(escala(P.lecturaCompanero, pTiene), "tu compañero marco " + NOMBRE_PALO[m.genera] + ": ahi tiene juego" + (pTiene < 1 ? " (probable)" : ""), "pensada");
+    else if (pNoTiene)
+      suma(escala(P.lecturaCompaneroNo, pNoTiene), "tu compañero marco que no le quedan " + NOMBRE_PALO[m.genera] + (pNoTiene < 1 ? " (probable)" : ""), "pensada");
     // Dejar correr tambien aqui: si la ficha con la que castigaria es mi llave,
     // no la gasto. Con mas motivo si el contrario marco fuerza en ese numero:
     // la va a volver a mandar y me quedo sin con que responder.
-    if (algunContrario("fuerte", m.castiga)) {
+    const pFuerteCas = pesoContrario("fuerte", m.castiga);
+    if (pFuerteCas) {
       if (llave) razones.push({ peso: 0, principio: "dejar correr",
         texto: "un contrario marco fuerza en " + NOMBRE_PALO[m.castiga] + ", pero esa es tu unica ficha del palo: guardala" });
-      else suma(P.lecturaCastigarFuerte, "castiga " + NOMBRE_PALO[m.castiga] + ", donde un contrario marco fuerza", "pensada");
+      else suma(escala(P.lecturaCastigarFuerte, pFuerteCas), "castiga " + NOMBRE_PALO[m.castiga] + ", donde un contrario marco fuerza" + (pFuerteCas < 1 ? " (probable)" : ""), "pensada");
     }
-    if (algunContrario("fuerte", m.genera))
-      suma(P.lecturaNoDarFuerte, "le sirve " + NOMBRE_PALO[m.genera] + ", donde un contrario marco fuerza", "pensada");
-    if (algunContrario("tieneMas", m.castiga) && !llave)
-      suma(P.lecturaCubrirContrario, "cubre " + NOMBRE_PALO[m.castiga] + ", que un contrario marco tener", "pensada");
+    const pFuerteGen = pesoContrario("fuerte", m.genera);
+    if (pFuerteGen)
+      suma(escala(P.lecturaNoDarFuerte, pFuerteGen), "le sirve " + NOMBRE_PALO[m.genera] + ", donde un contrario marco fuerza" + (pFuerteGen < 1 ? " (probable)" : ""), "pensada");
+    const pCubrir = pesoContrario("tieneMas", m.castiga);
+    if (pCubrir && !llave)
+      suma(escala(P.lecturaCubrirContrario, pCubrir), "cubre " + NOMBRE_PALO[m.castiga] + ", que un contrario marco tener" + (pCubrir < 1 ? " (probable)" : ""), "pensada");
 
     // P4 - indicar lo que tienes
     if (tengoFuerza(m.genera)) {
@@ -773,6 +874,6 @@ function sugerirJugada(estado) {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = { analizarMano, asesorSalida, sugerirJugada, reconstruirMesa,
                      pensadaPara, leerPensadas, configJugador, sistemaEnJuego,
-                     SISTEMAS, SALIDAS, ficha,
+                     pesoModernoEn, PESOS_COMBINADO, SISTEMAS, SALIDAS, ficha,
                      NOMBRE_PALO, ACOMP, PESOS_SUGERENCIA, PROB_DOBLES, PROB_FALLAS, FREQ_PALO };
 }
