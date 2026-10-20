@@ -857,16 +857,25 @@ function avisoPensada(k,pen){
 }
 /* ---- selectores de configuracion en el reparto ----
    Sistema y convencion de salida siempre; el sistema inicial solo si juega
-   combinado, que es cuando significa algo. */
+   combinado, que es cuando significa algo. Cada uno con su rotulo: dos
+   desplegables sin etiqueta, y los dos empezando por "ningun-", no se
+   distinguen. El texto de las opciones tambien se lee solo. */
+const TXT_SISTEMA={ninguno:"ninguno",clasico:"clásico",moderno:"moderno",combinado:"combinado"};
+const TXT_SALIDA={ninguna:"no marca",fuerza:"fuerza",calidad:"calidad"};
 function selectorSistema(seat){
   const c=cfgDe(seat);
-  const sel=(clase,campo,valores,valor,titulo)=>
-    `<select class="${clase}" data-seat="${seat}" data-campo="${campo}" title="${titulo}">`+
-    valores.map(x=>`<option value="${x}"${valor===x?" selected":""}>${x}</option>`).join("")+"</select>";
-  let h=sel("selsis","sistema",SISTEMAS,c.sistema,"Sistema de información de "+ROLE[seat]);
+  const campo=(rotulo,campoId,valores,valor,textos,titulo)=>
+    `<span class="campocfg" title="${titulo}"><b class="rotcfg">${rotulo}</b>`+
+    `<select class="selsis" data-seat="${seat}" data-campo="${campoId}">`+
+    valores.map(x=>`<option value="${x}"${valor===x?" selected":""}>${textos[x]||x}</option>`).join("")+
+    `</select></span>`;
+  let h=campo("Sistema","sistema",SISTEMAS,c.sistema,TXT_SISTEMA,
+    "Con qué sistema informa "+ROLE[seat]+" durante la mano: clásico marca el número que castiga, moderno el que genera, combinado alterna entre los dos.");
   if(c.sistema==="combinado")
-    h+=sel("selsis","inicial",["clasico","moderno"],c.inicial,"Con cuál empieza "+ROLE[seat]);
-  h+=sel("selsis","salida",SALIDAS,c.salida,"Qué informa la salida de "+ROLE[seat]);
+    h+=campo("Empieza con","inicial",["clasico","moderno"],c.inicial,TXT_SISTEMA,
+      "Con cuál de los dos arranca "+ROLE[seat]+"; luego lo conmuta en la mesa.");
+  h+=campo("Salida","salida",SALIDAS,c.salida,TXT_SALIDA,
+    "Qué informa la pensada de SALIDA de "+ROLE[seat]+": por fuerza habla del palo con el que sale, por calidad de si su mano es buena. Es independiente del sistema.");
   return h;
 }
 document.addEventListener("change",ev=>{
