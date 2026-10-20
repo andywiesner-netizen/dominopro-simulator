@@ -68,50 +68,6 @@
   </div>
 
   <!-- ================= SIM DEAL ================= -->
-  <div id="simDeal" class="hidden">
-    <div class="topbar"><button class="backbtn" data-mesa>← Mesa</button></div>
-    <div class="card">
-      <h2>Crear las 4 manos</h2>
-      <div class="btnrow grow" style="margin-bottom:8px">
-        <button class="btn gold" id="dealRandom">🎲 Repartir todo al azar</button>
-      </div>
-      <div class="muted center" style="margin:6px 0">— o a mano —</div>
-      <div class="muted center" style="margin-bottom:6px">Elige un jugador y toca sus fichas:</div>
-      <div class="seatpick" id="ownerPick">
-        <button data-p="0" class="lab0">🧍 TÚ <span data-c="0">0</span>/7</button>
-        <button data-p="1" class="lab1">😈 RD <span data-c="1">0</span>/7</button>
-        <button data-p="2" class="lab2">🤝 CO <span data-c="2">0</span>/7</button>
-        <button data-p="3" class="lab3">😈 RI <span data-c="3">0</span>/7</button>
-      </div>
-      <div class="btnrow" style="margin-top:8px">
-        <button class="btn ghost" id="dealFill">🎲 Rellenar resto</button>
-        <button class="btn ghost" id="dealClear">🧹 Limpiar</button>
-      </div>
-      <div id="ownerGrid" class="tilegrid" style="margin-top:10px"></div>
-    </div>
-    <div class="card">
-      <h2>¿Quién sale?</h2>
-      <div class="muted center">Por defecto sale quien tiene el <b>doble 6</b>.</div>
-      <div class="seatpick" id="simSeatPick">
-        <button data-seat="0">🧍 TÚ</button><button data-seat="1">😈 RD</button>
-        <button data-seat="2">🤝 CO</button><button data-seat="3">😈 RI</button>
-      </div>
-    </div>
-    <div class="card">
-      <h2>¿Cómo jugar?</h2>
-      <div class="btnrow grow" style="flex-direction:column">
-        <button class="btn gold" id="simPlay" disabled>🎮 Jugar / IA (paso a paso)</button>
-        <button class="btn blue" id="simBulkBtn">📊 Simular miles de rondas (stats)</button>
-        <div class="btnrow grow">
-          <button class="btn ghost" id="saveDeal" disabled>📸 Guardar reparto</button>
-          <button class="btn ghost" id="simOpenSaves">📂 Manos guardadas</button>
-        </div>
-      </div>
-      <div id="dealSaves"></div>
-      <div class="muted" style="margin-top:8px">En “paso a paso” puedes jugar tú cada ficha o pulsar que juegue la IA; ideal para practicar o analizar una posición concreta.</div>
-    </div>
-  </div>
-
   <!-- ================= SIM GAME (mesa a pantalla completa) ================= -->
   <div id="simGame" class="hidden">
     <div id="rotateHint">
@@ -206,6 +162,10 @@
     <div class="topbar"><button class="backbtn" id="bulkBack">← Mesa</button></div>
     <div class="card">
       <h2>Simulación masiva</h2>
+      <div class="btnrow grow" style="margin-bottom:8px">
+        <button class="btn gold sel" id="bulkSrcDeal">Este reparto</button>
+        <button class="btn ghost" id="bulkSrcGlobal">Repartos nuevos</button>
+      </div>
       <div id="bulkCtx" class="muted center" style="margin-bottom:6px"></div>
       <label class="fld">Número de rondas: <b id="bulkNlab">2000</b></label>
       <input type="range" id="bulkN" min="200" max="20000" step="200" value="2000">

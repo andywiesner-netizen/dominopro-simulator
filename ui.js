@@ -9,12 +9,12 @@ function tileHTML(a,b,cls=""){return `<span class="domino ${cls}">${halfHTML(a)}
 function tileK(k,cls=""){const t=kt(k);return tileHTML(t[0],t[1],cls+(t[0]===t[1]?" vert":""));}
 
 const $=s=>document.querySelector(s);
-const SCREENS=['liveSetup','liveGame','liveResult','simDeal','simGame','simResult','simBulk'];
+const SCREENS=['liveSetup','liveGame','liveResult','simGame','simResult','simBulk'];
 function show(id){SCREENS.forEach(s=>document.getElementById(s).classList.toggle('hidden',s!==id));window.scrollTo(0,0);}
 // la mesa es la pantalla de entrada y de salida: volver = mesa vacía (idle)
 function goTable(){analisis=null;partidaAbierta=null;GS=null;simIdle();show('simGame');}
 document.querySelectorAll('[data-mesa]').forEach(b=>b.onclick=goTable);
-document.querySelectorAll('[data-simdeal]').forEach(b=>b.onclick=()=>{simDealInit();show('simDeal');});
+document.querySelectorAll('[data-simdeal]').forEach(b=>b.onclick=()=>irAlReparto());
 $("#tbLive").onclick=()=>{liveRestart();show('liveSetup');};
 
 let toastT=null;
@@ -182,60 +182,10 @@ function liveEnd(motivo,winner){
    MODO 2 · SIMULADOR (las 4 manos conocidas)
    ============================================================ */
 let owner={}; // key -> playerIdx
-let selOwner=0, simStarter=null;
+let simStarter=null;
 let simDealMode="manual";
 let GS=null;
 
-function simDealInit(){
-  // no borrar si ya hay reparto en curso; init sólo si vacío
-  if(Object.keys(owner).length===0){ buildOwnerGrid(); }
-  refreshOwner();
-}
-function buildOwnerGrid(){
-  const g=$("#ownerGrid");g.innerHTML="";
-  allTiles().forEach(t=>{const k=key(t[0],t[1]);const d=document.createElement("div");d.className="pick";d.dataset.k=k;
-    d.innerHTML=tileHTML(t[0],t[1])+`<span class="owner"></span>`;
-    d.onclick=()=>{
-      simDealMode="manual";
-      if(owner[k]===selOwner){delete owner[k];}
-      else{const cnt=Object.values(owner).filter(v=>v===selOwner).length;if(cnt>=7){toast(`${ROLE[selOwner]} ya tiene 7`);return;}owner[k]=selOwner;}
-      refreshOwner();
-    };
-    g.appendChild(d);
-  });
-}
-$("#ownerPick").querySelectorAll("button").forEach(b=>b.onclick=()=>{selOwner=+b.dataset.p;
-  $("#ownerPick").querySelectorAll("button").forEach(x=>x.classList.remove("sel"));b.classList.add("sel");});
-$("#ownerPick").querySelector('button[data-p="0"]').classList.add("sel");
-function refreshOwner(){
-  $("#ownerGrid").querySelectorAll(".pick").forEach(el=>{
-    const k=el.dataset.k;const ow=el.querySelector(".owner");ow.className="owner";
-    if(owner[k]!==undefined)ow.classList.add("own"+owner[k]);
-  });
-  const cnt=[0,0,0,0];Object.values(owner).forEach(v=>cnt[v]++);
-  for(let p=0;p<4;p++)$("#ownerPick span[data-c='"+p+"']").textContent=cnt[p];
-  // detectar doble 6 -> salidor por defecto (si no elegido manualmente)
-  const d6=owner["6-6"];
-  if(d6!==undefined){setSimStarter(d6,true);}
-  const complete=cnt.every(c=>c===7);
-  const ready=complete&&simStarter!==null;
-  $("#simPlay").disabled=!ready;
-  $("#saveDeal").disabled=!ready;
-}
-$("#saveDeal").onclick=()=>doSave(posFromDeal(),"Reparto "+nowISO());
-function setSimStarter(p,auto){
-  simStarter=p;$("#simSeatPick").querySelectorAll("button").forEach(b=>b.classList.toggle("sel",+b.dataset.seat===p));
-}
-$("#simSeatPick").querySelectorAll("button").forEach(b=>b.onclick=()=>{setSimStarter(+b.dataset.seat,false);refreshOwner();});
-$("#dealRandom").onclick=()=>{owner={};simDealMode="aleatoria";const t=shuffle(allTiles().map(x=>key(x[0],x[1])));t.forEach((k,i)=>owner[k]=Math.floor(i/7));refreshOwner();toast("Repartido al azar");};
-$("#dealFill").onclick=()=>{
-  const cnt=[0,0,0,0];Object.values(owner).forEach(v=>cnt[v]++);
-  const free=shuffle(allTiles().map(x=>key(x[0],x[1])).filter(k=>owner[k]===undefined));
-  free.forEach(k=>{for(let p=0;p<4;p++)if(cnt[p]<7){owner[k]=p;cnt[p]++;break;}});refreshOwner();
-};
-$("#dealClear").onclick=()=>{owner={};simStarter=null;$("#simSeatPick").querySelectorAll("button").forEach(b=>b.classList.remove("sel"));refreshOwner();};
-$("#simPlay").onclick=()=>{startSimGame();};
-$("#simBulkBtn").onclick=()=>{bulkSource="global";bulkUI();show('simBulk');};
 
 /* ---- juego paso a paso (manual + IA) ---- */
 function startSimGame(){
@@ -670,13 +620,18 @@ function loadPosition(pos){
   GS.initial=simSnap();
   clearPanel();show('simGame');simRender();toast("Mano cargada");
 }
-$("#savePos").onclick=()=>{ if(!GS){toast("Primero reparte: Al Azar o Reparto");return;} doSave(posFromGame(),"Foto "+itemDate({createdAt:nowISO()})); };
+/* Guardar lo que haya: la posicion si se esta jugando, y si solo hay reparto,
+   el reparto. Esto ultimo lo hacia el boton "Guardar reparto" de la pantalla
+   que se retiro. */
+$("#savePos").onclick=()=>{
+  if(GS){ doSave(posFromGame(),"Foto "+itemDate({createdAt:nowISO()})); return; }
+  if(dealCompleto()){ doSave(posFromDeal(),"Reparto "+itemDate({createdAt:nowISO()})); return; }
+  toast("Primero reparte");
+};
 $("#openSaves").onclick=()=>{
   dpanel(`<div class="ovcard"><div class="center" style="margin-bottom:6px"><b>Manos guardadas</b></div><div id="gameSaves"></div><button class="btn ghost" style="width:100%;margin-top:8px" onclick="clearPanel()">Cerrar</button></div>`);
   renderSaves("gameSaves");
 };
-let dealSavesOpen=false;
-$("#simOpenSaves").onclick=()=>{dealSavesOpen=!dealSavesOpen;if(dealSavesOpen)renderSaves("dealSaves");else $("#dealSaves").innerHTML="";};
 
 $("#winProb").onclick=()=>{
   if(!GS){toast("Primero reparte: Al Azar o Reparto");return;}
@@ -1072,6 +1027,8 @@ function dealCompleto(){const c=[0,0,0,0];Object.values(owner).forEach(v=>c[v]++
 function bulkUI(){
   const deReparto=(bulkSource==="reparto");
   const row=$("#bulkStartRow"); if(row) row.style.display=deReparto?"none":"";
+  const marca=(b,on)=>{ if(!b)return; b.classList.toggle("gold",on); b.classList.toggle("sel",on); b.classList.toggle("ghost",!on); };
+  marca($("#bulkSrcDeal"),deReparto); marca($("#bulkSrcGlobal"),!deReparto);
   const ctx=$("#bulkCtx");
   if(ctx) ctx.innerHTML=deReparto
     ? `Sobre el <b>reparto actual</b> · sale ${ROLE[simStarter]} (${POS_COMPASS[posOf(simStarter)]})`
@@ -1083,7 +1040,15 @@ $("#tbBulk").onclick=()=>{
   if(simStarter===null){toast("Elige quién sale");return;}
   bulkSource="reparto";bulkUI();show('simBulk');
 };
-$("#bulkBack").onclick=()=>{show('simGame');simRender();};   // vuelve a la mesa tal como estaba
+$("#bulkBack").onclick=()=>{show('simGame');simRender();};
+/* Las dos fuentes, que antes solo se elegian segun por donde se entrara:
+   el reparto de la mesa, o repartos nuevos en cada ronda. */
+function bulkFuente(cual){
+  if(cual==="reparto"&&!dealCompleto()){toast("Primero reparte");return;}
+  bulkSource=cual; bulkUI();
+}
+$("#bulkSrcDeal").onclick=()=>bulkFuente("reparto");
+$("#bulkSrcGlobal").onclick=()=>bulkFuente("global");   // vuelve a la mesa tal como estaba
 $("#bulkN").oninput=e=>$("#bulkNlab").textContent=e.target.value;
 $("#startD6").onclick=()=>{bulkStartMode="d6";$("#startD6").classList.add("sel","gold");$("#startD6").classList.remove("ghost");$("#startRnd").classList.add("ghost");$("#startRnd").classList.remove("sel","gold");};
 $("#startRnd").onclick=()=>{bulkStartMode="rnd";$("#startRnd").classList.add("sel","gold");$("#startRnd").classList.remove("ghost");$("#startD6").classList.add("ghost");$("#startD6").classList.remove("sel","gold");};
@@ -1345,9 +1310,21 @@ function arrancarNueva(){
   clearPanel(); simIdle(); show("simGame");
   toast("Reparto nuevo · se conservan los sistemas");
 }
-function nuevaPartida(){
+/* Vuelve al reparto conservando las fichas ya repartidas, para retocarlo.
+   La diferencia con Nueva partida es justo esa: aquella vacia el reparto. */
+function irAlReparto(){
+  confirmarPerdida(()=>{
+    analisis=null; GS=null; sistemaVigente={0:null,1:null,2:null,3:null};
+    pensadaForzada=null; sugeridaK=null; verTodas=false;
+    clearPanel(); simIdle(); show("simGame");
+  });
+}
+function nuevaPartida(){ confirmarPerdida(arrancarNueva); }
+
+/* Si hay jugadas que no estan en la biblioteca, pregunta antes de perderlas. */
+function confirmarPerdida(seguir){
   const p=partidaEnCurso();
-  if(!p||!p.jugadas.length||estaGuardada(p)){arrancarNueva();return;}
+  if(!p||!p.jugadas.length||estaGuardada(p)){seguir();return;}
   const n=p.jugadas.length;
   dpanel(`<div class="ovcard">
     <div class="center" style="margin-bottom:6px"><b>Hay una partida sin guardar</b></div>
@@ -1361,10 +1338,10 @@ function nuevaPartida(){
     </div></div>`);
   $("#npGuardar").onclick=()=>{
     // en analisis la partida ya vive en la biblioteca: se guardan las anotaciones
-    if(enAnalisis()){ guardarAnalisis(); arrancarNueva(); return; }
-    if(guardarEnBiblioteca(false)!==false) arrancarNueva();
+    if(enAnalisis()){ guardarAnalisis(); seguir(); return; }
+    if(guardarEnBiblioteca(false)!==false) seguir();
   };
-  $("#npTirar").onclick=arrancarNueva;
+  $("#npTirar").onclick=seguir;
 }
 $("#tbNueva").onclick=nuevaPartida;
 
@@ -1886,7 +1863,8 @@ function motivoBoton(id){
     case "tbBulk":  if(!dealCompleto())return "Primero reparte";
                     if(simStarter===null)return "Falta elegir quien sale";
                     return "";
-    case "savePos": case "tbVer": case "rotView":
+    case "savePos": if(!GS&&!dealCompleto())return "Primero reparte"; return "";
+    case "tbVer": case "rotView":
                     if(!GS)return sinMano; return "";
     case "tbGuardar": case "tbGuardarComo":
                     if(soloLectura())return id==="tbGuardar"?"":"Guardala primero en tu biblioteca";
@@ -2012,7 +1990,7 @@ $("#tbGuardar").onclick=()=>{ if(soloLectura()){guardarCompartida();return;} gua
 $("#tbGuardarComo").onclick=()=>guardarEnBiblioteca(true);
 
 // arranque: entra directo a la mesa, vacía hasta que se reparta (Al Azar / Reparto)
-buildPicker();buildOwnerGrid();
+buildPicker();
 simIdle();show('simGame');
 // si la app se abre con #p=..., manda la partida compartida
 try{ if(location.hash.indexOf("p=")>=0) abrirDesdeEnlace(); }catch(e){}
