@@ -982,6 +982,27 @@ function estadoParaSugerir(){
     sistemas:sistemas, pasesSeguidos:GS.passes,
   };
 }
+/* La frase completa de la jugada: ficha, punta y pensada, que en esta escuela
+   son una sola decision. Devuelve "" si ese jugador no marca nada. */
+function frasePensada(s){
+  const p=s.pensada;
+  if(!p)return "";
+  const punta=s.recomendada.punta==="I"?"por la izquierda"
+            :s.recomendada.punta==="D"?"por la derecha":"de salida";
+  const sis=p.combinado&&p.sistema?` en ${NOMBRE_SIS[p.sistema]}`
+           :p.sistema?` (${NOMBRE_SIS[p.sistema]})`:"";
+  const cola=p.combinado&&p.motivoSistema?`: ${p.texto}, y ${p.motivoSistema}`:`: ${p.texto}`;
+  return `${s.recomendada.ficha} ${punta}, <b>${p.marca}</b>${sis}${cola}`;
+}
+function bloquePensada(s){
+  const frase=frasePensada(s);
+  if(!frase)return "";
+  return `<div class="probpanel" style="margin-top:8px">
+    <div class="muted" style="font-size:.72rem;margin-bottom:4px">Con qué pensada:</div>
+    <div style="font-size:.82rem">${frase}</div>
+    ${s.pensada.aviso?`<div class="muted" style="font-size:.68rem;margin-top:4px">⚠ ${s.pensada.aviso}</div>`:""}
+  </div>`;
+}
 function panelSugerir(s,ia){
   const t=kt(s.recomendada.ficha);
   const col={alta:"var(--ok)",media:"var(--gold)",baja:"var(--dim)"}[s.confianza]||"var(--dim)";
@@ -1013,6 +1034,7 @@ function panelSugerir(s,ia){
       ${razones}${contras}
       <div style="font-size:.7rem;margin-top:6px">Confianza: <b style="color:${col}">${s.confianza}</b></div>
     </div>
+    ${bloquePensada(s)}
     ${s.porQueNo?`<div class="muted" style="font-size:.72rem;margin-top:6px">${s.porQueNo}</div>`:""}
     ${alts?`<div class="probpanel" style="margin-top:8px"><div class="muted" style="font-size:.72rem;margin-bottom:4px">Alternativas:</div>${alts}</div>`:""}
     ${bloqueLecturas(s.lecturas)}
@@ -1279,11 +1301,11 @@ function cargarPartida(p){
 /* ---- biblioteca ---- */
 function guardarEnBiblioteca(comoNueva){
   const p=partidaActual();
-  if(!p||!p.jugadas.length){toast("No hay partida que guardar");return;}
+  if(!p||!p.jugadas.length){toast("No hay partida que guardar");return false;}
   const sugerido=(partidaAbierta&&partidaAbierta.titulo)||tituloPorDefecto();
   let titulo;
   try{ titulo=prompt("Título de la partida:",comoNueva?sugerido+" (copia)":sugerido); }catch(e){ titulo=sugerido; }
-  if(titulo===null)return;
+  if(titulo===null)return false;
   titulo=(titulo||"").trim()||sugerido;
   const lista=leerBiblioteca();
   const id=(!comoNueva&&partidaAbierta&&partidaAbierta.id)||nuevoId();
@@ -1295,7 +1317,56 @@ function guardarEnBiblioteca(comoNueva){
   guardarBiblioteca(lista);
   partidaAbierta={id:id,titulo:titulo,etiquetas:p.etiquetas||[],notas:p.notas||""};
   toast(i>=0&&!comoNueva?"Partida actualizada":"Partida guardada");
+  return true;
 }
+
+/* ---- Nueva partida ----
+   Disponible siempre, tambien a mitad de mano y en analisis. Conserva los
+   sistemas y la convencion de salida de cada asiento: encadenar manos con la
+   misma configuracion es justo lo que uno quiere al practicar. */
+function partidaEnCurso(){
+  if(enAnalisis())return analisis.partida;
+  const p=partidaActual();
+  return (p&&p.jugadas&&p.jugadas.length)?p:null;
+}
+function estaGuardada(p){
+  const id=(partidaAbierta&&partidaAbierta.id)||p.id||null;
+  if(!id)return false;
+  const e=leerBiblioteca().find(x=>x.id===id);
+  if(!e)return false;
+  // la fecha cambia en cada llamada: se comparan las jugadas, que es lo que se pierde
+  return JSON.stringify(e.partida.jugadas)===JSON.stringify(p.jugadas);
+}
+function arrancarNueva(){
+  analisis=null; partidaAbierta=null; GS=null;
+  owner={}; simDealMode="manual"; simStarter=null;
+  sistemaVigente={0:null,1:null,2:null,3:null};   // los sistemas NO se tocan
+  pensadaForzada=null; sugeridaK=null; verTodas=false;
+  clearPanel(); simIdle(); show("simGame");
+  toast("Reparto nuevo · se conservan los sistemas");
+}
+function nuevaPartida(){
+  const p=partidaEnCurso();
+  if(!p||!p.jugadas.length||estaGuardada(p)){arrancarNueva();return;}
+  const n=p.jugadas.length;
+  dpanel(`<div class="ovcard">
+    <div class="center" style="margin-bottom:6px"><b>Hay una partida sin guardar</b></div>
+    <div class="muted" style="font-size:.74rem">Se perderá lo jugado (${n} jugada${n===1?"":"s"}). ¿Guardar antes?</div>
+    <div class="btnrow grow" style="margin-top:10px">
+      <button class="btn gold" id="npGuardar">Guardar y empezar</button>
+      <button class="btn red" id="npTirar">Empezar sin guardar</button>
+    </div>
+    <div class="btnrow grow" style="margin-top:6px">
+      <button class="btn ghost" onclick="clearPanel()">Cancelar</button>
+    </div></div>`);
+  $("#npGuardar").onclick=()=>{
+    // en analisis la partida ya vive en la biblioteca: se guardan las anotaciones
+    if(enAnalisis()){ guardarAnalisis(); arrancarNueva(); return; }
+    if(guardarEnBiblioteca(false)!==false) arrancarNueva();
+  };
+  $("#npTirar").onclick=arrancarNueva;
+}
+$("#tbNueva").onclick=nuevaPartida;
 
 function panelBiblioteca(){
   const lista=leerBiblioteca();

@@ -577,6 +577,88 @@ function reconstruirMesa(jugadas) {
   return { ends: ends, secuencia: secuencia, pases: pases };
 }
 
+/* Cuanto lleva jugado un asiento (0 = su primera ficha, 1 = la septima) y
+   cuantas de las dos puntas abiertas las puso su pareja menos las que puso la
+   contraria. Son los dos ingredientes de PESOS_COMBINADO. */
+function avanceYDominio(secuencia, yo) {
+  let puestas = 0;
+  let duenoPunta = [null, null];
+  (secuencia || []).forEach(s => {
+    if (s.jugador === yo) puestas++;
+    if (s.castiga === null || s.castiga === undefined) duenoPunta = [s.jugador, s.jugador];
+    else duenoPunta[s.punta === "I" ? 0 : 1] = s.jugador;
+  });
+  const dominio = [0, 1].reduce((d, i) => d + (duenoPunta[i] === null ? 0
+    : mismoEquipo(duenoPunta[i], yo) ? 1 : -1), 0);
+  return { avance: Math.min(1, puestas / 6), dominio: dominio };
+}
+
+/* ---------- la pensada que acompana a la jugada ----------
+   En esta escuela la ficha y la pensada son UNA sola decision: no basta con
+   decir que ficha, hay que decir si se juega CPP o SPP y, en combinado, con
+   que sistema conviene jugarla.
+
+   Devuelve {marca, sistema, texto, aviso} o null si ese jugador no marca.
+   `m` es la jugada elegida; con ends=null es la salida. */
+function pensadaSugerida(estado, m, secuencia) {
+  const yo = estado.yo;
+  const cfg = configJugador((estado.sistemas || {})[yo]);
+  const esSalida = !m || m.castiga === null || m.castiga === undefined;
+  if (esSalida ? cfg.salida === "ninguna" : cfg.sistema === "ninguno") return null;
+
+  // En combinado la doctrina elige con cual conviene jugarla: moderno al
+  // principio y llevando la mano, clasico segun cierra y defendiendo.
+  let sistema = cfg.sistema, motivoSistema = null;
+  if (cfg.sistema === "combinado" && !esSalida) {
+    const ctx = avanceYDominio(secuencia, yo);
+    const pm = pesoModernoEn(ctx.avance, ctx.dominio);
+    sistema = pm >= 0.5 ? "moderno" : "clasico";
+    const porTiempo = ctx.avance < 0.5 ? "es temprano en la mano" : "la mano va cerrando";
+    const porMando = ctx.dominio > 0 ? "llevas tu la mano"
+                   : ctx.dominio < 0 ? "estas defendiendo" : null;
+    motivoSistema = porMando ? porTiempo + " y " + porMando : porTiempo;
+  }
+
+  const marca = pensadaPara({
+    ficha: m.ficha, numeroCastigado: esSalida ? null : m.castiga,
+    numeroGenerado: esSalida ? null : m.genera, mano: estado.miMano,
+    sistema: cfg, sistemaJugada: sistema,
+    jugadas: (secuencia || []).map(x => x.ficha),
+  });
+  if (!marca) return null;
+
+  // el porque, en lenguaje de mesa
+  const t = ficha(m.ficha);
+  const doble = t && t[0] === t[1];
+  let texto;
+  if (esSalida) {
+    texto = cfg.salida === "calidad"
+      ? (marca === "SPP" ? "tu mano es buena" : "tu mano no es de las buenas")
+      : (marca === "SPP" ? "sales sin acompanamiento" : "sales con acompanamiento");
+  } else if (doble) {
+    texto = marca === "CPP" ? "te quedan mas " + NOMBRE_PALO[m.castiga] + " aparte del doble"
+                            : "el doble era tu unica de " + NOMBRE_PALO[m.castiga];
+  } else if (sistema === "clasico") {
+    texto = marca === "CPP" ? "te quedan mas " + NOMBRE_PALO[m.castiga]
+                            : "esa era tu ultima de " + NOMBRE_PALO[m.castiga];
+  } else {
+    texto = marca === "SPP" ? "tienes fuerza en " + NOMBRE_PALO[m.genera]
+                            : "no tienes fuerza en " + NOMBRE_PALO[m.genera];
+  }
+
+  /* Si el companero juega sin sistema no va a leer la marca: se dice en vez de
+     dejar creer que informa algo. Los contrarios si la leen, asi que no se
+     suprime la pensada: solo se avisa. */
+  const cfgComp = configJugador((estado.sistemas || {})[(yo + 2) % 4]);
+  const aviso = cfgComp.sistema === "ninguno"
+    ? "tu companero juega sin sistema: esa marca no se la va a leer"
+    : null;
+
+  return { marca: marca, sistema: esSalida ? null : sistema, convencion: esSalida ? cfg.salida : null,
+           combinado: cfg.sistema === "combinado", motivoSistema: motivoSistema,
+           texto: texto, aviso: aviso };
+}
+
 /* sugerirJugada(estado)
    estado = { yo, miMano, ends, secuencia, pases, salidor, salida,
               pasesSeguidos?, contrasteIA? }
@@ -596,6 +678,7 @@ function sugerirJugada(estado) {
     return { recomendada: { ficha: sal.ficha, punta: "inicio" },
              razones: [{ peso: null, principio: "salida", texto: sal.motivo }],
              contras: [], confianza: sal.confianza, porQueNo: null,
+             pensada: pensadaSugerida(estado, { ficha: sal.ficha }, secuencia),
              alternativas: [], contrasteIA: contrasteIA, esSalida: true };
   }
 
@@ -860,6 +943,8 @@ function sugerirJugada(estado) {
                    genera: mejor.genera, puntos: mejor.puntos },
     razones: mejor.razones.filter(r => r.peso > 0).slice(0, 3),
     contras: mejor.razones.filter(r => r.peso < 0),
+    // la ficha y la pensada son una sola decision
+    pensada: pensadaSugerida(estado, mejor, secuencia),
     confianza: confianza,
     desempate: desempate,
     lecturas: lectura.notas,
@@ -874,6 +959,7 @@ function sugerirJugada(estado) {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = { analizarMano, asesorSalida, sugerirJugada, reconstruirMesa,
                      pensadaPara, leerPensadas, configJugador, sistemaEnJuego,
-                     pesoModernoEn, PESOS_COMBINADO, SISTEMAS, SALIDAS, ficha,
+                     pesoModernoEn, PESOS_COMBINADO, pensadaSugerida, avanceYDominio,
+                     SISTEMAS, SALIDAS, ficha,
                      NOMBRE_PALO, ACOMP, PESOS_SUGERENCIA, PROB_DOBLES, PROB_FALLAS, FREQ_PALO };
 }
