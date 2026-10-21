@@ -54,7 +54,11 @@ console.log("\n--- sistema 'ninguno' y bordes ---");
 t("sistema ninguno -> null", pensadaPara({
   ficha: "5-4", numeroCastigado: 5, numeroGenerado: 4,
   mano: ["5-4", "5-3"], sistema: "ninguno", jugadas: [] }), null);
-t("sin sistema -> null", pensadaPara({ ficha: "5-4", numeroCastigado: 5, numeroGenerado: 4, mano: ["5-4"] }), null);
+t("sistema 'ninguno' explicito -> null", pensadaPara({ ficha: "5-4", numeroCastigado: 5, numeroGenerado: 4,
+  mano: ["5-4"], sistema: "ninguno" }), null);
+// el valor por defecto paso a ser 'combinado', asi que no declararlo SI marca
+t("sin declarar sistema, el defecto es combinado y marca", pensadaPara({
+  ficha: "5-4", numeroCastigado: 5, numeroGenerado: 4, mano: ["5-4"] }) !== null, true);
 t("ficha invalida -> null", pensadaPara({ ficha: "9-9", numeroCastigado: 1, numeroGenerado: 2, mano: [], sistema: "clasico" }), null);
 
 // pureza: no muta la mano
@@ -150,12 +154,22 @@ const enPartida = (sistema, salida) => pensadaPara({
 t("sin sistema no marca en partida, aunque marque la salida", enPartida("ninguno", "calidad"), null);
 t("con sistema marca en partida, aunque no marque la salida", enPartida("moderno", "ninguna"), "CPP");
 
-t("por defecto NO se marca la salida", pensadaPara({
+/* El convenio de salida ya no es del jugador sino de la mesa, y su valor por
+   defecto es "fuerza": el que dice si hay fuerza o no en la piedra. */
+t("por defecto la salida se marca por fuerza", pensadaPara({
   ficha: "5-5", numeroCastigado: null, numeroGenerado: null, mano: MANO_SAL,
-  sistema: { sistema: "clasico" }, jugadas: [] }), null);
-t("ni siquiera con la config vieja en forma de cadena", pensadaPara({
+  sistema: { sistema: "clasico" }, jugadas: [] }), salida("clasico", "fuerza"));
+t("y con 'ninguna' explicito no se marca", pensadaPara({
   ficha: "5-5", numeroCastigado: null, numeroGenerado: null, mano: MANO_SAL,
-  sistema: "clasico", jugadas: [] }), null);
+  sistema: "clasico", salida: "ninguna", jugadas: [] }), null);
+// una partida vieja traia el convenio dentro del jugador: se sigue leyendo
+t("se hereda el convenio que viniera en el jugador", pensadaPara({
+  ficha: "5-5", numeroCastigado: null, numeroGenerado: null, mano: MANO_SAL,
+  sistema: { sistema: "clasico", salida: "ninguna" }, jugadas: [] }), null);
+t("y el de la mesa manda sobre el del jugador", pensadaPara({
+  ficha: "5-5", numeroCastigado: null, numeroGenerado: null, mano: MANO_SAL,
+  sistema: { sistema: "clasico", salida: "ninguna" }, salida: "fuerza", jugadas: [] }),
+  salida("clasico", "fuerza"));
 t("pero el resto de la mano sigue marcandose igual", pensadaPara({
   ficha: "3-4", numeroCastigado: 3, numeroGenerado: 4,
   mano: ["3-4", "4-2"], sistema: "moderno", jugadas: ["3-3"] }), "CPP");

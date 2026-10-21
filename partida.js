@@ -12,6 +12,7 @@ var _con = (typeof reconstruirMesa === "undefined" && typeof require !== "undefi
 var _reconstruir = _con ? _con.reconstruirMesa : reconstruirMesa;
 var _ficha = _con ? _con.ficha : ficha;
 var _config = _con ? _con.configJugador : configJugador;
+var _convenio = _con ? _con.convenioSalida : convenioSalida;
 
 const ASIENTOS = ["S", "E", "N", "O"];
 const SEAT = { S: 0, E: 1, N: 2, O: 3 };
@@ -21,6 +22,25 @@ const VERSION = 1;
 const SISTEMAS_OK = ["ninguno", "clasico", "moderno", "combinado"];
 const SALIDAS_OK = ["ninguna", "fuerza", "calidad"];
 const SUFIJO = { clasico: "/C", moderno: "/M" };
+var _CONV_DEF = _con ? _con.CONVENIO_DEFECTO : CONVENIO_DEFECTO;
+
+/* El convenio de salida es de la MESA, no de cada jugador: la salida es una.
+   Las partidas guardadas antes de esto lo llevaban por jugador; de esas se
+   hereda el del salidor, y se dice, para no perderlas ni cambiarlas en
+   silencio. Devuelve {convenio, heredado, de}. */
+function convenioDe(partida) {
+  const p = partida || {};
+  if (SALIDAS_OK.includes(p.convenio))
+    return { convenio: p.convenio, heredado: false, de: null };
+  const L = ASIENTOS.includes(p.salidor) ? p.salidor : "S";
+  const suya = ((p.jugadores || {})[L] || {}).salida;
+  if (SALIDAS_OK.includes(suya))
+    return { convenio: suya, heredado: true, de: L };
+  // alguno lo llevaba, aunque no el salidor: tambien cuenta como heredado
+  const otro = ASIENTOS.filter(a => SALIDAS_OK.includes(((p.jugadores || {})[a] || {}).salida))[0];
+  if (otro) return { convenio: p.jugadores[otro].salida, heredado: true, de: otro };
+  return { convenio: _CONV_DEF, heredado: false, de: null };
+}
 const POR_SUFIJO = { C: "clasico", M: "moderno" };
 
 /* La configuracion de un jugador se guarda ESCUETA: solo lo que no es el valor
@@ -31,7 +51,9 @@ function jugadorMinimo(nombre, cfg) {
   const c = _config(cfg);
   const j = { nombre: nombre || null, sistema: c.sistema };
   if (c.sistema === "combinado" || c.inicial !== "moderno") j.combinado = { inicial: c.inicial };
-  if (c.salida !== "ninguna") j.salida = c.salida;
+  // ya no se escribe la salida por jugador; si venia de una partida vieja se
+  // respeta tal cual, que es de donde se hereda el convenio al abrirla
+  if (SALIDAS_OK.includes(c.salida)) j.salida = c.salida;
   return j;
 }
 
@@ -101,6 +123,9 @@ function desdeEstado(estado, opciones) {
            : (jugadas.length ? jugadas[0].jugador : "S"),
     jugadas: jugadas,
   };
+  // escueto: solo si no es el de por defecto, para que una partida que no lo
+  // usa quede igual que antes y las viejas vuelvan sin campos nuevos
+  if (SALIDAS_OK.includes(o.convenio) && o.convenio !== _CONV_DEF) p.convenio = o.convenio;
   if (o.resultado) p.resultado = o.resultado;
   if (o.marcador) p.marcador = o.marcador;
   return p;
@@ -147,6 +172,7 @@ function posicionEn(partida, n) {
   // la config completa de cada asiento: {sistema, inicial, salida}
   const sistemas = {};
   ASIENTOS.forEach((L, p) => { sistemas[p] = _config((partida.jugadores || {})[L]); });
+  const conv = convenioDe(partida);
 
   const hist = hechas.map(j => j.pase
     ? { jugador: asiento(j.jugador), paso: true, pensada: null, veredicto: j.veredicto || null, comentario: j.comentario || null }
@@ -164,7 +190,8 @@ function posicionEn(partida, n) {
     manos: manos, hist: hist, ends: mesa.ends,
     secuencia: mesa.secuencia, pases: mesa.pases,
     current: current, passes: passes, salidor: asiento(partida.salidor),
-    sistemas: sistemas, over: false,
+    sistemas: sistemas, convenio: conv.convenio, convenioHeredado: conv.heredado,
+    convenioDe: conv.de, over: false,
     siguiente: corte < total ? partida.jugadas[corte] : null,
   };
 }
@@ -191,6 +218,7 @@ function estadoPara(partida, n, jugador) {
     salida: primera ? { ficha: norm(primera.ficha), jugador: asiento(primera.jugador),
                         pensada: primera.pensada || null } : null,
     sistemas: pos.sistemas,
+    convenio: pos.convenio,
     pasesSeguidos: pos.passes,
   };
 }
@@ -228,6 +256,8 @@ function validar(partida) {
   if (!partida.manos) err("faltan las manos");
   if (!Array.isArray(partida.jugadas)) { err("faltan las jugadas"); return { ok: false, errores: errores }; }
   if (!ASIENTOS.includes(partida.salidor)) err("salidor invalido: " + partida.salidor);
+  if (partida.convenio !== undefined && partida.convenio !== null && !SALIDAS_OK.includes(partida.convenio))
+    err("convenio de salida desconocido: " + partida.convenio, partida._lineaConvenio);
 
   // configuracion de cada jugador: un valor que no entendemos es un error,
   // no un silencioso "ninguno"
@@ -327,9 +357,13 @@ function aTexto(partida) {
       ((c.sistema === "combinado" || c.inicial !== "moderno") ? " desde " + c.inicial : "");
   }).join(" · "));
 
-  // La convencion de salida solo se escribe si alguien marca su salida.
-  if (ASIENTOS.some(a => _config(partida.jugadores[a]).salida !== "ninguna"))
-    L.push("Salida: " + ASIENTOS.map(a => a + " " + _config(partida.jugadores[a]).salida).join(" · "));
+  // Un convenio para toda la mesa, y solo si no es el de por defecto.
+  if (SALIDAS_OK.includes(partida.convenio) && partida.convenio !== _CONV_DEF)
+    L.push("Convenio: " + partida.convenio);
+  // la linea vieja (una por jugador) se reescribe tal cual si la partida la trae
+  if (ASIENTOS.some(a => SALIDAS_OK.includes((partida.jugadores[a] || {}).salida)))
+    L.push("Salida: " + ASIENTOS.map(a =>
+      a + " " + ((partida.jugadores[a] || {}).salida || "-")).join(" · "));
 
   L.push("Manos: " + ASIENTOS.map(a => {
     const m = partida.manos[a];
@@ -403,12 +437,20 @@ function desdeTexto(texto) {
         }
       }); return;
     }
+    if (/^convenio\s*:/i.test(linea)) {
+      p._lineaConvenio = nLinea;
+      const v = linea.replace(/^convenio\s*:/i, "").trim().toLowerCase();
+      if (!SALIDAS_OK.includes(v))
+        errores.push({ texto: 'no entiendo el convenio de salida "' + v + '"', linea: nLinea });
+      p.convenio = v;
+      return;
+    }
     if (/^salida\s*:/i.test(linea)) {
       p._lineaSalida = nLinea;
       trozos(linea.replace(/^salida\s*:/i, "")).forEach(t => {
         const q = t.trim().split(/\s+/);
         const a = String(q[0] || "").toUpperCase();
-        if (!p.jugadores[a] || !q[1]) return;
+        if (!p.jugadores[a] || !q[1] || q[1] === "-") return;
         const sal = q[1].toLowerCase();
         if (!SALIDAS_OK.includes(sal))
           errores.push({ texto: 'no entiendo la convencion de salida "' + q[1] + '" de ' + a, linea: nLinea });
@@ -520,13 +562,14 @@ function normalizar(partida) {
 // quita los campos auxiliares del parser, para comparar ida y vuelta
 function limpiar(partida) {
   const c = JSON.parse(JSON.stringify(partida));
-  delete c._errores; delete c._lineaManos; delete c._lineaSistemas; delete c._lineaSalida;
+  delete c._errores; delete c._lineaManos; delete c._lineaSistemas;
+  delete c._lineaSalida; delete c._lineaConvenio;
   (c.jugadas || []).forEach(j => { delete j._linea; });
   return c;
 }
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = { desdeEstado, aEstado, posicionEn, estadoPara, truncar,
-                     validar, aTexto, desdeTexto, limpiar, normalizar,
+                     validar, aTexto, desdeTexto, limpiar, normalizar, convenioDe,
                      ASIENTOS, SEAT, VERSION };
 }

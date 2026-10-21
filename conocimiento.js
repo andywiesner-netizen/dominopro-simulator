@@ -280,23 +280,38 @@ function asesorSalida(misFichas) {
      automatica de cambio: lo que vale es el sistema que quedo registrado al
      hacer esa jugada; si no viene (partida vieja), el inicial de su config.
 
-   La PENSADA DE SALIDA es un eje APARTE del sistema (§6): se marca segun la
-   convencion elegida, sin importar con que sistema se juegue el resto.
-   · ninguna (por defecto): no marca la salida.
-   · fuerza: la decide el asesor de salida, y habla del PALO.
+   La PENSADA DE SALIDA es un eje APARTE del sistema (§6) y, sobre todo, es UNA
+   SOLA EN LA MESA: la salida es una, asi que el convenio no es de cada
+   jugador sino de la partida.
+   · fuerza (por defecto): la decide el asesor de salida, y habla del PALO:
+     dice si hay fuerza o no en la piedra con la que se sale.
    · calidad: habla de la MANO entera. Buena o Poderosa -> SPP; el resto, CPP.
      Si una mano es Poderosa y Mala a la vez, manda Poderosa.
-   Asi, un jugador con sistema "ninguno" puede marcar su salida, y uno con
-   sistema puede no marcarla. Las jugadas sucesivas (§5.4) siguen fuera. */
+   · ninguna: la salida no se marca.
+   Las partidas guardadas antes de esto llevaban el convenio por jugador; se
+   siguen leyendo, heredando el del salidor. Las jugadas sucesivas (§5.4)
+   siguen fuera. */
 const SISTEMAS = ["ninguno", "clasico", "moderno", "combinado"];
 const SALIDAS = ["ninguna", "fuerza", "calidad"];
+const CONVENIO_DEFECTO = "fuerza";
+
+/* El convenio de salida que rige: el de la mesa si viene, el que llevaba el
+   jugador si la partida es de las de antes, y si no el de por defecto. */
+function convenioSalida(deLaMesa, cfgJugador) {
+  if (SALIDAS.includes(deLaMesa)) return deLaMesa;
+  if (cfgJugador && SALIDAS.includes(cfgJugador.salida)) return cfgJugador.salida;
+  return CONVENIO_DEFECTO;
+}
 
 /* configJugador(c) -> {sistema, inicial, salida}
    Acepta la forma vieja ("clasico") y la nueva ({sistema, combinado:{inicial},
    salida}). Todos los campos nuevos son opcionales: lo que falte, por defecto.
    Asi una partida guardada antes de esto se lee sin tocarla. */
 function configJugador(c) {
-  const d = { sistema: "ninguno", inicial: "moderno", salida: "ninguna" };
+  /* Por defecto combinado: es lo que se juega en el alto nivel. `salida` ya no
+     es del jugador; solo se conserva para leer partidas guardadas antes de
+     moverlo a la mesa, y por eso nace en null. */
+  const d = { sistema: "combinado", inicial: "moderno", salida: null };
   if (!c) return d;
   if (typeof c === "string") { if (SISTEMAS.includes(c)) d.sistema = c; return d; }
   if (SISTEMAS.includes(c.sistema)) d.sistema = c.sistema;
@@ -326,7 +341,7 @@ function sistemaEnJuego(cfg, sistemaJugada) {
    Devuelve "CPP", "SPP" o null. */
 function pensadaPara(o) {
   const cfg = configJugador(o.sistema);
-  if (SALIDAS.includes(o.salida)) cfg.salida = o.salida;
+  const convenio = convenioSalida(o.salida, cfg);
   const t = ficha(o.ficha);
   if (!t) return null;
 
@@ -335,8 +350,8 @@ function pensadaPara(o) {
      la resuelve la etiqueta de la mano (habla del juego), y ahi Poderosa manda
      sobre Mala: un palo de cuatro es juego aunque sobren dobles y fallas. */
   if (o.numeroCastigado === null || o.numeroCastigado === undefined) {
-    if (cfg.salida === "ninguna") return null;
-    if (cfg.salida === "calidad") {
+    if (convenio === "ninguna") return null;
+    if (convenio === "calidad") {
       const et = analizarMano(o.mano).etiquetas;
       return (et.includes("Poderosa") || et.includes("Buena")) ? "SPP" : "CPP";
     }
@@ -404,6 +419,8 @@ const mismoEquipo = (a, b) => a !== null && b !== null && (a - b) % 2 === 0;
    La salida por calidad no habla de un palo sino de la mano: va a `juego`. */
 function leerPensadas(secuencia, sistemas, opciones) {
   const o = opciones || {};
+  // el convenio de salida es de la mesa; o.convenio lo trae desde la partida
+  const convenioMesa = s2 => convenioSalida(o.convenio, s2);
   // Los cajones son Mapa numero -> peso. Una lectura sin ambiguedad pesa 1, asi
   // que quien juega clasico o moderno se lee exactamente igual que antes.
   const vacio = () => ({ tieneMas: new Map(), noTiene: new Map(), fuerte: new Map(), juego: null });
@@ -436,7 +453,7 @@ function leerPensadas(secuencia, sistemas, opciones) {
 
     if (!s.pensada || !t) { tras(); return; }
     // la salida se lee por su convencion; el resto de la mano, por el sistema
-    if (esSalida ? cfg.salida === "ninguna" : cfg.sistema === "ninguno") { tras(); return; }
+    if (esSalida ? convenioMesa(cfg) === "ninguna" : cfg.sistema === "ninguno") { tras(); return; }
 
     const gen = (s.genera || [])[0];
     const doble = t[0] === t[1];
@@ -448,7 +465,7 @@ function leerPensadas(secuencia, sistemas, opciones) {
 
     let n = null, dice = null, opcs = null, coinciden = false;
 
-    if (esSalida && cfg.salida === "calidad") {
+    if (esSalida && convenioMesa(cfg) === "calidad") {
       por[s.jugador].juego = s.pensada === "SPP" ? "bueno" : "malo";
       dice = s.pensada === "SPP" ? "salio declarando buen juego"
                                  : "salio declarando juego malo o complicado";
@@ -494,7 +511,7 @@ function leerPensadas(secuencia, sistemas, opciones) {
 
     notas.push({ jugador: s.jugador, ficha: s.ficha, pensada: s.pensada,
                  sistema: deduce ? null : sis, sistemaDeclarado: cfg.sistema,
-                 convencion: esSalida ? cfg.salida : null, esSalida: esSalida,
+                 convencion: esSalida ? convenioMesa(cfg) : null, esSalida: esSalida,
                  deducida: !!deduce, opciones: opcs, coinciden: coinciden,
                  avance: +avance.toFixed(3), dominio: dominio,
                  numero: n, dice: dice });
@@ -603,8 +620,9 @@ function avanceYDominio(secuencia, yo) {
 function pensadaSugerida(estado, m, secuencia) {
   const yo = estado.yo;
   const cfg = configJugador((estado.sistemas || {})[yo]);
+  const convenio = convenioSalida(estado.convenio, cfg);
   const esSalida = !m || m.castiga === null || m.castiga === undefined;
-  if (esSalida ? cfg.salida === "ninguna" : cfg.sistema === "ninguno") return null;
+  if (esSalida ? convenio === "ninguna" : cfg.sistema === "ninguno") return null;
 
   // En combinado la doctrina elige con cual conviene jugarla: moderno al
   // principio y llevando la mano, clasico segun cierra y defendiendo.
@@ -622,7 +640,7 @@ function pensadaSugerida(estado, m, secuencia) {
   const marca = pensadaPara({
     ficha: m.ficha, numeroCastigado: esSalida ? null : m.castiga,
     numeroGenerado: esSalida ? null : m.genera, mano: estado.miMano,
-    sistema: cfg, sistemaJugada: sistema,
+    sistema: cfg, sistemaJugada: sistema, salida: convenio,
     jugadas: (secuencia || []).map(x => x.ficha),
   });
   if (!marca) return null;
@@ -632,7 +650,7 @@ function pensadaSugerida(estado, m, secuencia) {
   const doble = t && t[0] === t[1];
   let texto;
   if (esSalida) {
-    texto = cfg.salida === "calidad"
+    texto = convenio === "calidad"
       ? (marca === "SPP" ? "tu mano es buena" : "tu mano no es de las buenas")
       : (marca === "SPP" ? "sales sin acompanamiento" : "sales con acompanamiento");
   } else if (doble) {
@@ -654,7 +672,7 @@ function pensadaSugerida(estado, m, secuencia) {
     ? "tu companero juega sin sistema: esa marca no se la va a leer"
     : null;
 
-  return { marca: marca, sistema: esSalida ? null : sistema, convencion: esSalida ? cfg.salida : null,
+  return { marca: marca, sistema: esSalida ? null : sistema, convencion: esSalida ? convenio : null,
            combinado: cfg.sistema === "combinado", motivoSistema: motivoSistema,
            texto: texto, aviso: aviso };
 }
@@ -709,7 +727,7 @@ function sugerirJugada(estado) {
   const cfgSalidor = configJugador((estado.sistemas || {})[salidorSeat]);
   // la convencion de salida no depende del sistema: quien no lleva sistema en
   // partida puede haber marcado su salida igual, y se lee igual
-  const salidaPorCalidad = cfgSalidor.salida === "calidad";
+  const salidaPorCalidad = convenioSalida(estado.convenio, cfgSalidor) === "calidad";
   const paloSalidaFuerte = (salidorCompanero && !salidaPorCalidad && sal.pensada === "SPP" && nums) ? nums : null;
   const juegoSalidor = (salidaPorCalidad && sal.pensada) ? (sal.pensada === "SPP" ? "bueno" : "malo") : null;
   const companeroBuenJuego = salidorCompanero && juegoSalidor === "bueno";
@@ -731,7 +749,7 @@ function sugerirJugada(estado) {
      se deduce. Cada lectura trae su peso (1 si no hay ambiguedad), y ese peso
      escala lo que empuja, que es justo lo que hace un jugador: fiarse menos de
      lo que no esta seguro. */
-  const lectura = leerPensadas(secuencia, estado.sistemas || {}, { yo: yo });
+  const lectura = leerPensadas(secuencia, estado.sistemas || {}, { yo: yo, convenio: estado.convenio });
   const peso = (j, cual, n) => {
     const m = lectura.por[j] && lectura.por[j][cual];
     return m && m.has(n) ? m.get(n) : 0;
@@ -960,6 +978,6 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports = { analizarMano, asesorSalida, sugerirJugada, reconstruirMesa,
                      pensadaPara, leerPensadas, configJugador, sistemaEnJuego,
                      pesoModernoEn, PESOS_COMBINADO, pensadaSugerida, avanceYDominio,
-                     SISTEMAS, SALIDAS, ficha,
+                     convenioSalida, CONVENIO_DEFECTO, SISTEMAS, SALIDAS, ficha,
                      NOMBRE_PALO, ACOMP, PESOS_SUGERENCIA, PROB_DOBLES, PROB_FALLAS, FREQ_PALO };
 }

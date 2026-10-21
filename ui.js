@@ -581,8 +581,8 @@ window.addEventListener("message",e=>{
 
 function askName(def){try{const n=prompt("Nombre de la foto:",def);return n===null?null:(n.trim()||def);}catch(e){return def;}}
 const copiaSistemas=()=>JSON.parse(JSON.stringify(sistemas));
-function posFromGame(){return {hands:GS.hands.map(s=>[...s]),ends:GS.ends?GS.ends.slice():null,sequence:GS.sequence.slice(),current:GS.current,passes:GS.passes,starter:simStarter,dealMode:simDealMode,sistemas:copiaSistemas(),hist:(GS.hist||[]).slice()};}
-function posFromDeal(){return {hands:[0,1,2,3].map(p=>Object.keys(owner).filter(k=>owner[k]===p)),ends:null,sequence:[],current:simStarter,passes:0,starter:simStarter,dealMode:simDealMode,sistemas:copiaSistemas()};}
+function posFromGame(){return {hands:GS.hands.map(s=>[...s]),ends:GS.ends?GS.ends.slice():null,sequence:GS.sequence.slice(),current:GS.current,passes:GS.passes,starter:simStarter,dealMode:simDealMode,sistemas:copiaSistemas(),convenio:convenioMesa,hist:(GS.hist||[]).slice()};}
+function posFromDeal(){return {hands:[0,1,2,3].map(p=>Object.keys(owner).filter(k=>owner[k]===p)),ends:null,sequence:[],current:simStarter,passes:0,starter:simStarter,dealMode:simDealMode,sistemas:copiaSistemas(),convenio:convenioMesa};}
 function nowISO(){try{return new Date().toISOString();}catch(e){return "";}}
 function buildItem(name,pos){
   const played=28-pos.hands.reduce((n,h)=>n+h.length,0);
@@ -615,6 +615,7 @@ async function renderSaves(targetId){
 function loadPosition(pos){
   simStarter=pos.starter;simDealMode=pos.dealMode||"guardada";
   if(pos.sistemas)ponerSistemas(pos.sistemas);
+  if(SALIDAS.indexOf(pos.convenio)>=0)convenioMesa=pos.convenio;
   GS={hands:pos.hands.map(a=>new Set(a)),ends:pos.ends?pos.ends.slice():null,sequence:pos.sequence.slice(),
       current:pos.current,passes:pos.passes||0,over:false,history:[],log:[],hist:(pos.hist||[]).slice()};
   GS.initial=simSnap();
@@ -745,22 +746,32 @@ $("#tbMano").onclick=()=>{
 
 /* ---- sistemas de informacion y registro de la marca ----
    Cada asiento tiene su configuracion: {sistema, inicial, salida}.
-     sistema : ninguno | clasico | moderno | combinado
+     sistema : ninguno | clasico | moderno | combinado (por defecto combinado)
      inicial : con cual arranca un combinado (clasico|moderno)
-     salida  : que informa su pensada de SALIDA (ninguna|fuerza|calidad).
-               Es un eje aparte: no depende del sistema, y por defecto no marca.
+   El convenio de salida NO va aqui: es de la mesa, en convenioMesa.
    La pensada NUNCA se infiere: la calcula el sistema de quien juega, o la
    anota quien la vio. Se elige en el reparto y viaja con la partida.
 
    Combinado: no hay regla automatica de cambio. El usuario conmuta cuando
    quiere y cada jugada guarda el sistema que estaba vigente al hacerla. */
-function cfgPorDefecto(){return {sistema:"ninguno",inicial:"moderno",salida:"ninguna"};}
+function cfgPorDefecto(){return {sistema:"combinado",inicial:"moderno",salida:null};}
+/* El convenio de salida es UNO de la mesa: la salida es una sola. Se elige en
+   el reparto y viaja con la partida. (El nombre no es convenioSalida porque
+   asi se llama la funcion de conocimiento.js, que tambien es global.) */
+let convenioMesa=CONVENIO_DEFECTO;
 let sistemas={0:cfgPorDefecto(),1:cfgPorDefecto(),2:cfgPorDefecto(),3:cfgPorDefecto()};
 // con que sistema juega AHORA cada combinado (null = el inicial de su config)
 let sistemaVigente={0:null,1:null,2:null,3:null};
 let pensadaForzada=null;                 // Auto / CPP / SPP para tu proxima jugada
 
 function cfgDe(seat){return configJugador(sistemas[seat]);}
+/* Las partidas guardadas antes de mover el convenio a la mesa lo llevaban por
+   jugador: se hereda el del salidor y se dice, en vez de perderlo. */
+function aplicarConvenio(p){
+  const c=convenioDe(p||{});
+  convenioMesa=c.convenio;
+  if(c.heredado)toast(`Partida antigua: convenio de salida "${c.convenio}" heredado de ${c.de}`);
+}
 function ponerSistemas(mapa){
   [0,1,2,3].forEach(i=>{ sistemas[i]=configJugador(mapa?mapa[i]:null); });
   sistemaVigente={0:null,1:null,2:null,3:null};
@@ -769,10 +780,9 @@ function ponerSistemas(mapa){
 /* marca algo este jugador? (puede marcar solo la salida, sin sistema)
    marcaAhora mira el momento: en la salida manda la convencion, despues el
    sistema. Asi el conmutador Auto/CPP/SPP solo sale cuando sirve de algo. */
-function marcaAlgo(seat){const c=cfgDe(seat);return c.sistema!=="ninguno"||c.salida!=="ninguna";}
+function marcaAlgo(seat){return cfgDe(seat).sistema!=="ninguno"||convenioMesa!=="ninguna";}
 function marcaAhora(seat){
-  const c=cfgDe(seat);
-  return (!GS||GS.ends===null) ? c.salida!=="ninguna" : c.sistema!=="ninguno";
+  return (!GS||GS.ends===null) ? convenioMesa!=="ninguna" : cfgDe(seat).sistema!=="ninguno";
 }
 function vigenteDe(seat){
   const c=cfgDe(seat);
@@ -790,7 +800,7 @@ function calcularPensada(p,k,side){
   const t=kt(k); const gen=cast===null?null:(t[0]===cast?t[1]:t[0]);
   return pensadaPara({ficha:k,lado:side,numeroCastigado:cast,numeroGenerado:gen,
     mano:[...GS.hands[p]],sistema:sistemas[p],sistemaJugada:vigenteDe(p),
-    jugadas:jugadasEnMesa()});
+    salida:convenioMesa,jugadas:jugadasEnMesa()});
 }
 const NOMBRE_SIS={clasico:"clásico",moderno:"moderno",combinado:"combinado",ninguno:"ninguno"};
 const SIS_CORTO={clasico:"clás",moderno:"mod"};
@@ -800,9 +810,9 @@ function avisoPensada(k,pen){
   const t=kt(k), doble=t[0]===t[1];
   // la salida se explica por su convencion; el sistema no pinta nada ahi
   if(GS&&GS.sequence&&GS.sequence.length<=1){
-    const queS=c.salida==="calidad"?"informa si tu mano es buena"
-                                   :"informa el acompañamiento de tu salida";
-    toast(`Jugaste ${k} ${pen}: ${queS} (salida por ${c.salida})`);
+    const queS=convenioMesa==="calidad"?"informa si tu mano es buena"
+                                       :"informa el acompañamiento de tu salida";
+    toast(`Jugaste ${k} ${pen}: ${queS} (convenio: ${convenioMesa})`);
     return;
   }
   const comoJuega=c.sistema==="combinado"?`combinado → ${NOMBRE_SIS[sis]}`:NOMBRE_SIS[sis];
@@ -817,30 +827,42 @@ function avisoPensada(k,pen){
    distinguen. El texto de las opciones tambien se lee solo. */
 const TXT_SISTEMA={ninguno:"ninguno",clasico:"clásico",moderno:"moderno",combinado:"combinado"};
 const TXT_SALIDA={ninguna:"no marca",fuerza:"fuerza",calidad:"calidad"};
+/* Un solo convenio para toda la mesa, en la pantalla de reparto. */
+function selectorConvenio(){
+  const op=SALIDAS.map(x=>`<option value="${x}"${convenioMesa===x?" selected":""}>${TXT_SALIDA[x]}</option>`).join("");
+  return `<label class="convmesa" title="Cómo se marca la salida. Es una sola para la mesa: la salida es una.">`+
+    `Convenio de salida: <select id="selConvenio">${op}</select></label>`;
+}
+document.addEventListener("change",ev=>{
+  if(!ev.target.closest("#selConvenio"))return;
+  convenioMesa=ev.target.value;
+  if(GS)simRender(); else simIdle();
+});
+/* Un solo desplegable por banda. El sistema inicial del combinado va dentro de
+   sus propias opciones en vez de en un segundo desplegable: con combinado por
+   defecto, dos por banda era el mismo ruido de antes. */
+const OPCIONES_SISTEMA=[
+  ["ninguno","ninguno"],["clasico","clásico"],["moderno","moderno"],
+  ["combinado:clasico","combinado, empieza clásico"],
+  ["combinado:moderno","combinado, empieza moderno"],
+];
 function selectorSistema(seat){
   const c=cfgDe(seat);
-  const campo=(rotulo,campoId,valores,valor,textos,titulo)=>
-    `<span class="campocfg" title="${titulo}"><b class="rotcfg">${rotulo}</b>`+
-    `<select class="selsis" data-seat="${seat}" data-campo="${campoId}">`+
-    valores.map(x=>`<option value="${x}"${valor===x?" selected":""}>${textos[x]||x}</option>`).join("")+
-    `</select></span>`;
-  let h=campo("Sistema","sistema",SISTEMAS,c.sistema,TXT_SISTEMA,
-    "Con qué sistema informa "+ROLE[seat]+" durante la mano: clásico marca el número que castiga, moderno el que genera, combinado alterna entre los dos.");
-  if(c.sistema==="combinado")
-    h+=campo("Empieza con","inicial",["clasico","moderno"],c.inicial,TXT_SISTEMA,
-      "Con cuál de los dos arranca "+ROLE[seat]+"; luego lo conmuta en la mesa.");
-  h+=campo("Salida","salida",SALIDAS,c.salida,TXT_SALIDA,
-    "Qué informa la pensada de SALIDA de "+ROLE[seat]+": por fuerza habla del palo con el que sale, por calidad de si su mano es buena. Es independiente del sistema.");
-  return h;
+  const actual=c.sistema==="combinado"?"combinado:"+c.inicial:c.sistema;
+  const op=OPCIONES_SISTEMA.map(([v,txt])=>
+    `<option value="${v}"${actual===v?" selected":""}>${txt}</option>`).join("");
+  return `<span class="campocfg" title="Cómo informa ${ROLE[seat]} durante la mano: clásico marca el número que castiga, moderno el que genera, combinado alterna entre los dos y se conmuta en la mesa.">`+
+    `<b class="rotcfg">Sistema</b>`+
+    `<select class="selsis" data-seat="${seat}" data-campo="sistema">${op}</select></span>`;
 }
 document.addEventListener("change",ev=>{
   const sel=ev.target.closest(".selsis");
   if(!sel)return;
-  const seat=+sel.dataset.seat, campo=sel.dataset.campo||"sistema";
+  const seat=+sel.dataset.seat;
   const c=cfgDe(seat);
-  if(campo==="inicial")c.inicial=sel.value;
-  else if(campo==="salida")c.salida=sel.value;
-  else { c.sistema=sel.value; sistemaVigente[seat]=null; }
+  const [sis,ini]=sel.value.split(":");
+  c.sistema=sis; if(ini)c.inicial=ini;
+  sistemaVigente[seat]=null;
   sistemas[seat]=c;
   if(GS)simRender(); else simIdle();
 });
@@ -934,7 +956,7 @@ function estadoParaSugerir(){
     yo:GS.current, miMano:[...GS.hands[GS.current]], ends:GS.ends,
     secuencia:mesa.secuencia, pases:mesa.pases, salidor:simStarter,
     salida:primera?{ficha:primera.ficha,jugador:primera.jugador,pensada:pensada}:null,
-    sistemas:sistemas, pasesSeguidos:GS.passes,
+    sistemas:sistemas, convenio:convenioMesa, pasesSeguidos:GS.passes,
   };
 }
 /* La frase completa de la jugada: ficha, punta y pensada, que en esta escuela
@@ -1172,7 +1194,7 @@ function partidaDesdePos(pos,titulo){
 /* ---- de la mesa actual a partida ---- */
 function partidaActual(extra){
   const o=Object.assign({
-    salidor:simStarter===null?0:simStarter, sistemas:sistemas, modo:"simulador",
+    salidor:simStarter===null?0:simStarter, sistemas:sistemas, convenio:convenioMesa, modo:"simulador",
     id:(partidaAbierta&&partidaAbierta.id)||nuevoId(),
     titulo:(partidaAbierta&&partidaAbierta.titulo)||"",
     etiquetas:(partidaAbierta&&partidaAbierta.etiquetas)||[],
@@ -1231,6 +1253,7 @@ function cargarPartida(p){
   let est;
   try{ est=aEstado(p); }catch(e){ toast("Partida inválida"); return; }
   ponerSistemas(est.sistemas);
+  aplicarConvenio(p);
   simStarter=est.salidor; simDealMode=p.modo==="vivo"?"en vivo":"guardada";
   owner={}; ["S","E","N","O"].forEach((L,i)=>{ (p.manos[L]||[]).forEach(k=>{owner[k]=i;}); });
 
@@ -1447,6 +1470,7 @@ function analisisSalir(){analisis=null;}
 function analisisPintar(){
   const p=analisis.partida, pos=posicionEn(p,analisis.n);
   ponerSistemas(pos.sistemas);
+  aplicarConvenio(analisis.partida);
   simStarter=pos.salidor; simDealMode=p.modo==="vivo"?"en vivo":"guardada";
   GS={hands:["S","E","N","O"].map(L=>new Set(pos.manos[L]||[])),
       ends:null,sequence:[],current:pos.current,passes:pos.passes,over:false,

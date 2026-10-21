@@ -268,6 +268,11 @@
   /* Hasta tres por banda (sistema, inicial del combinado y salida): en bloque
      y sin pasarse del ancho de la banda, que a 320px se salia. Cada uno con su
      rotulo encima, que si no son dos desplegables identicos. */
+  .dealconv{margin:8px 0 2px; text-align:center;}
+  .convmesa{font-size:.74rem; color:var(--ivory); display:inline-flex; align-items:center; gap:6px;
+            flex-wrap:wrap; justify-content:center;}
+  .convmesa select{font-size:.74rem; padding:2px 6px; border-radius:7px;
+                   border:1px solid rgba(255,255,255,.25); background:#0d2410; color:var(--ivory);}
   .band .campocfg{display:block; margin-top:3px;}
   .band .rotcfg{display:block; font-size:.5rem; font-weight:800; letter-spacing:.7px;
                 text-transform:uppercase; color:var(--dim); line-height:1.3;}

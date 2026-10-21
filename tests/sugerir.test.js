@@ -1,4 +1,9 @@
 const { sugerirJugada, reconstruirMesa } = require("../conocimiento.js");
+
+/* Los ejercicios del taller se juzgan por principios, no por pensadas: se fijan
+   los cuatro sistemas en 'ninguno' de forma explicita. Antes salia solo porque
+   ese era el valor por defecto; ahora el defecto es 'combinado'. */
+const SIN_SISTEMAS = { 0: "ninguno", 1: "ninguno", 2: "ninguno", 3: "ninguno" };
 const NOM = ["A", "B", "C", "D"];
 
 // Cada caso: quien soy, las jugadas en orden, mi mano AHORA y lo que espera el taller.
@@ -63,7 +68,7 @@ for (const c of casos) {
     yo: c.yo, miMano: c.mano, ends: mesa.ends, secuencia: mesa.secuencia, pases: mesa.pases,
     salidor: c.jug[0].jugador,
     salida: { ficha: c.jug[0].ficha, jugador: c.jug[0].jugador, pensada: c.pensada || null },
-    pasesSeguidos: 0,
+    sistemas: SIN_SISTEMAS, pasesSeguidos: 0,
   });
 
   const esp = c.esperado.map(norm);
@@ -106,7 +111,8 @@ for (const c of casos) {
   const mesa = reconstruirMesa(c.jug);
   const r = sugerirJugada({ yo: c.yo, miMano: c.mano, ends: mesa.ends, secuencia: mesa.secuencia,
     pases: mesa.pases, salidor: c.jug[0].jugador,
-    salida: { ficha: c.jug[0].ficha, jugador: c.jug[0].jugador, pensada: c.pensada || null }, pasesSeguidos: 0 });
+    salida: { ficha: c.jug[0].ficha, jugador: c.jug[0].jugador, pensada: c.pensada || null },
+    sistemas: SIN_SISTEMAS, pasesSeguidos: 0 });
   console.log("\n" + c.n + ": " + r.recomendada.ficha + " (genera " + r.recomendada.genera + ") " +
     r.recomendada.puntos + " ptos, confianza " + r.confianza);
   r.razones.forEach(x => console.log("   + " + x.peso + "  [" + x.principio + "] " + x.texto));

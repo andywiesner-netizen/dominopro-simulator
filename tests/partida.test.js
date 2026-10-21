@@ -156,11 +156,13 @@ eq("conserva pensadas", est.hist.filter(h => h.pensada).length, JUGADAS.filter(j
 eq("conserva veredictos", est.hist.filter(h => h.veredicto).length, JUGADAS.filter(j => j.veredicto).length);
 eq("conserva comentarios", est.hist.filter(h => h.comentario).length, JUGADAS.filter(j => j.comentario).length);
 // pos.sistemas ya no es la cadena suelta: lleva la config entera del jugador
+// `salida` ya no es del jugador: queda en null salvo en partidas viejas
 eq("sistemas por asiento", est.sistemas, {
-  0: { sistema: "clasico", inicial: "moderno", salida: "ninguna" },
-  1: { sistema: "moderno", inicial: "moderno", salida: "ninguna" },
-  2: { sistema: "ninguno", inicial: "moderno", salida: "ninguna" },
-  3: { sistema: "ninguno", inicial: "moderno", salida: "ninguna" } });
+  0: { sistema: "clasico", inicial: "moderno", salida: null },
+  1: { sistema: "moderno", inicial: "moderno", salida: null },
+  2: { sistema: "ninguno", inicial: "moderno", salida: null },
+  3: { sistema: "ninguno", inicial: "moderno", salida: null } });
+eq("y el convenio es de la mesa", est.convenio, "fuerza");
 t("puntas coherentes", Array.isArray(est.ends) && est.ends.length === 2, JSON.stringify(est.ends));
 const jugadasDeS = JUGADAS.filter(j => !j.pase && j.jugador === "S").length;
 eq("a S le quedan las que no jugo", est.manos.S.length, 7 - jugadasDeS);
@@ -205,7 +207,7 @@ t("devuelve algo para S", !!ePara);
 eq("yo = 0", ePara.yo, 0);
 eq("su mano es la suya en esa posicion", ePara.miMano, pm.manos.S);
 eq("solo las claves previstas", Object.keys(ePara).sort(),
-  ["ends", "miMano", "pases", "pasesSeguidos", "salida", "salidor", "secuencia", "sistemas", "yo"]);
+  ["convenio", "ends", "miMano", "pases", "pasesSeguidos", "salida", "salidor", "secuencia", "sistemas", "yo"]);
 const serializado = JSON.stringify(ePara);
 const enMesa = base.jugadas.filter(j => !j.pase).slice(0, mitad).map(j => j.ficha);
 const ajenasOcultas = ["E", "N", "O"].reduce((a, L) => a.concat(pm.manos[L]), [])
@@ -312,10 +314,10 @@ const vieja = P.desdeTexto([
 ].join("\n"));
 eq("no se le inventan campos", vieja.jugadores.S, { nombre: null, sistema: "clasico" });
 eq("configJugador le pone los defectos", C.configJugador(vieja.jugadores.S),
-  { sistema: "clasico", inicial: "moderno", salida: "ninguna" });
+  { sistema: "clasico", inicial: "moderno", salida: null });
 const posVieja = P.posicionEn(vieja, 1);
 eq("posicionEn da la config completa", posVieja.sistemas[0],
-  { sistema: "clasico", inicial: "moderno", salida: "ninguna" });
+  { sistema: "clasico", inicial: "moderno", salida: null });
 const textoViejo = P.aTexto(vieja);
 t("al volver a texto no aparece la linea de Salida", !/^Salida:/m.test(textoViejo), textoViejo);
 t("ni el 'desde' en los sistemas", !/desde/.test(textoViejo), textoViejo);
@@ -347,34 +349,63 @@ t("validar avisa del inicial desconocido", vMal.errores.some(e => /inicial desco
 
 
 /* ================= salida "ninguna" y partida sin titulo ================= */
-console.log("\n--- convencion de salida: 'ninguna' es el defecto ---");
-const sinMarca = P.desdeEstado(
-  { hands: [new Set(["0-1"]), new Set(["2-2"]), new Set(["3-3"]), new Set(["4-4"])],
-    hist: [{ jugador: 0, ficha: "5-5", punta: null, pensada: null, veredicto: null, comentario: "" }] },
-  { salidor: 0, titulo: "Quien marca la salida", id: "p-sinmarca",
-    sistemas: { 0: { sistema: "clasico", salida: "fuerza" }, 1: "moderno",
-                2: { sistema: "ninguno", salida: "calidad" },
-                3: { sistema: "ninguno", salida: "ninguna" } } });
+/* El convenio de salida es de la MESA, no de cada jugador: la salida es una.
+   Este bloque sustituye al que probaba la convencion por jugador. */
+console.log("\n--- convenio de salida: uno para toda la mesa ---");
+const MANOS_JUGUETE = { hands: [new Set(["0-1"]), new Set(["2-2"]), new Set(["3-3"]), new Set(["4-4"])],
+  hist: [{ jugador: 0, ficha: "5-5", punta: null, pensada: null, veredicto: null, comentario: "" }] };
+const conConvenio = (conv, extra) => P.desdeEstado(MANOS_JUGUETE,
+  Object.assign({ salidor: 0, titulo: "Con convenio", id: "p-conv", convenio: conv,
+    sistemas: { 0: "clasico", 1: "moderno", 2: "ninguno", 3: "ninguno" } }, extra || {}));
 
-eq("se guarda la de quien marca por fuerza", sinMarca.jugadores.S,
-  { nombre: null, sistema: "clasico", salida: "fuerza" });
-eq("y la de quien marca por calidad sin sistema", sinMarca.jugadores.N,
-  { nombre: null, sistema: "ninguno", salida: "calidad" });
-eq("el que no la toca no engorda", sinMarca.jugadores.E, { nombre: null, sistema: "moderno" });
-eq("ni el que la pone a ninguna a mano", sinMarca.jugadores.O, { nombre: null, sistema: "ninguno" });
-const txtSinMarca = P.aTexto(sinMarca);
-t("la linea de Salida las nombra todas",
-  /^Salida: S fuerza \u00b7 E ninguna \u00b7 N calidad \u00b7 O ninguna$/m.test(txtSinMarca), txtSinMarca);
-eq("ida y vuelta exacta", P.limpiar(P.desdeTexto(txtSinMarca)), P.limpiar(sinMarca));
-eq("el defecto de quien no la toca es no marcar",
-  C.configJugador(sinMarca.jugadores.E).salida, "ninguna");
-t("validar no se queja de la convencion", !P.validar(sinMarca).errores.some(e => /convencion de salida/.test(e.texto)), JSON.stringify(P.validar(sinMarca).errores));
-// y si nadie marca, la linea no se escribe
-const nadieMarca = P.desdeEstado(
-  { hands: [new Set(["0-1"]), new Set(["2-2"]), new Set(["3-3"]), new Set(["4-4"])], hist: [] },
-  { salidor: 0, id: "p-nadie", sistemas: { 0: "clasico", 1: "moderno", 2: "ninguno", 3: "ninguno" } });
-t("sin nadie que marque no hay linea de Salida", !/^Salida:/m.test(P.aTexto(nadieMarca)), P.aTexto(nadieMarca));
-eq("y vuelve igual", P.limpiar(P.desdeTexto(P.aTexto(nadieMarca))), P.limpiar(nadieMarca));
+const porCalidad = conConvenio("calidad");
+eq("el convenio va en la partida, no en los jugadores", porCalidad.convenio, "calidad");
+t("ningun jugador lleva salida", ASI.every(a => porCalidad.jugadores[a].salida === undefined),
+  JSON.stringify(porCalidad.jugadores));
+const txtConv = P.aTexto(porCalidad);
+t("una sola linea de Convenio", /^Convenio: calidad$/m.test(txtConv), txtConv);
+t("y ninguna linea de Salida por jugador", !/^Salida:/m.test(txtConv), txtConv);
+eq("ida y vuelta exacta", P.limpiar(P.desdeTexto(txtConv)), P.limpiar(porCalidad));
+eq("convenioDe lo devuelve sin heredar", P.convenioDe(porCalidad), { convenio: "calidad", heredado: false, de: null });
+
+// el de por defecto no se escribe, para que una partida normal quede igual que antes
+const porDefecto = conConvenio("fuerza");
+t("el convenio por defecto no engorda el texto", !/^Convenio:/m.test(P.aTexto(porDefecto)), P.aTexto(porDefecto));
+eq("y al leerla sale igualmente 'fuerza'", P.convenioDe(porDefecto).convenio, "fuerza");
+eq("sin convenio declarado, tambien 'fuerza'", P.convenioDe({ salidor: "S", jugadores: {} }).convenio, "fuerza");
+eq("posicionEn lo trae puesto", P.posicionEn(porCalidad, 1).convenio, "calidad");
+eq("estadoPara tambien", P.estadoPara(porCalidad, 0, "S").convenio, "calidad");
+t("validar acepta el campo", P.validar(porCalidad).errores.every(e => !/convenio/.test(e.texto)),
+  JSON.stringify(P.validar(porCalidad).errores));
+const convMalo = P.desdeTexto(["# Partida: x", "Convenio: loquesea", "Manos: S ? \u00b7 E ? \u00b7 N ? \u00b7 O ?", "Sale: S"].join("\n"));
+t("y se queja de uno que no entiende",
+  (convMalo._errores || []).some(e => /convenio de salida/.test(e.texto)) ||
+  P.validar(convMalo).errores.some(e => /convenio/.test(e.texto)), JSON.stringify(convMalo._errores));
+
+console.log("\n--- una partida vieja hereda el convenio del salidor ---");
+/* Asi se guardaban antes: la convencion dentro de cada jugador y sin campo de
+   mesa. No se pierde: se hereda la del salidor y se avisa. */
+const vieja2 = P.desdeTexto([
+  "# Partida: de antes",
+  "Sistemas: S clasico \u00b7 E moderno \u00b7 N ninguno \u00b7 O ninguno",
+  "Salida: S calidad \u00b7 E fuerza \u00b7 N fuerza \u00b7 O fuerza",
+  "Manos: S 6-6 \u00b7 E 6-5 \u00b7 N 5-5 \u00b7 O 4-4",
+  "Sale: S",
+  "1. S 6-6 CPP",
+].join("\n"));
+eq("sigue leyendo la salida por jugador", vieja2.jugadores.S.salida, "calidad");
+eq("no se le inventa un campo de mesa", vieja2.convenio, undefined);
+eq("hereda la del salidor", P.convenioDe(vieja2), { convenio: "calidad", heredado: true, de: "S" });
+eq("y posicionEn lo marca como heredado", P.posicionEn(vieja2, 1).convenioHeredado, true);
+eq("diciendo de quien", P.posicionEn(vieja2, 1).convenioDe, "S");
+eq("la partida vieja vuelve entera, sin perder nada",
+  P.limpiar(P.desdeTexto(P.aTexto(vieja2))), P.limpiar(vieja2));
+// si el salidor no la llevaba pero otro si, tambien se rescata
+const vieja3 = JSON.parse(JSON.stringify(vieja2));
+delete vieja3.jugadores.S.salida;
+vieja3.jugadores.E.salida = "ninguna";
+eq("si el salidor no la llevaba, se toma la que haya",
+  P.convenioDe(vieja3), { convenio: "ninguna", heredado: true, de: "E" });
 
 console.log("\n--- partida sin titulo ---");
 const anonima = P.desdeEstado(

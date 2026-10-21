@@ -49,6 +49,8 @@
           (total ? `<button class="btn ghost" id="dealLimpiar">🧹 Limpiar</button>` : "") +
           `</div>`
         : "") +
+      (typeof selectorConvenio === "function"
+        ? `<div class="dealconv">${selectorConvenio()}</div>` : "") +
       `<div class="dealpie">Arrastra una ficha a un jugador, o tócala y luego tócalo a él` +
       (total ? ` · toca una ya repartida para devolverla al montón` : "") +
       `</div>`;

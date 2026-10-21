@@ -149,7 +149,7 @@ const corta = armar(manosC, jugC, { variante_de: { id: "p-madre", n: 3 } });
     const C = require("../conocimiento.js");
     eq("no se le inventan campos nuevos", antigua.jugadores.S, { nombre: null, sistema: "clasico" });
     eq("se lee con los valores por defecto", C.configJugador(antigua.jugadores.S),
-      { sistema: "clasico", inicial: "moderno", salida: "ninguna" });
+      { sistema: "clasico", inicial: "moderno", salida: null });
     t("ninguna jugada trae sistema registrado",
       antigua.jugadas.every(j => j.sistema === undefined), JSON.stringify(antigua.jugadas[0]));
     t("y la partida sigue siendo valida", P.validar(antigua).ok,
