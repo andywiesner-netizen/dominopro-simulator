@@ -22,6 +22,35 @@ const VERSION = 1;
 const SISTEMAS_OK = ["ninguno", "clasico", "moderno", "combinado"];
 const SALIDAS_OK = ["ninguna", "fuerza", "calidad"];
 const SUFIJO = { clasico: "/C", moderno: "/M" };
+
+/* La clasificacion se escribe y se lee tal cual: los ejes los define
+   clasificacion.js y aqui no se juzgan, solo viajan. */
+function _clasTexto(c) {
+  const p = [];
+  if (c.momento) p.push("momento " + c.momento);
+  if (c.temas && c.temas.length) p.push("temas " + c.temas.join(","));
+  if (c.sistema) p.push("sistema " + c.sistema);
+  if (c.dificultad) p.push("dificultad " + c.dificultad);
+  if (c.origen) p.push("origen " + c.origen);
+  return p.join(" \u00b7 ");
+}
+function _clasDesde(txt) {
+  const c = {};
+  String(txt || "").split(/\s*[\u00b7|]\s*/).forEach(tr => {
+    const q = tr.trim().split(/\s+/);
+    if (q.length < 2) return;
+    const k = q[0].toLowerCase(), v = q.slice(1).join(" ");
+    if (k === "temas") c.temas = v.split(",").map(x => x.trim()).filter(Boolean);
+    else if (["momento", "sistema", "dificultad", "origen"].indexOf(k) >= 0) c[k] = v.toLowerCase();
+  });
+  // en el mismo orden en que se escriben, para que la ida y vuelta sea exacta
+  // aunque el texto venga con las partes cambiadas de sitio
+  const orden = {};
+  ["momento", "temas", "sistema", "dificultad", "origen"].forEach(k => {
+    if (c[k] !== undefined) orden[k] = c[k];
+  });
+  return Object.keys(orden).length ? orden : null;
+}
 var _CONV_DEF = _con ? _con.CONVENIO_DEFECTO : CONVENIO_DEFECTO;
 
 /* El convenio de salida es de la MESA, no de cada jugador: la salida es una.
@@ -99,6 +128,9 @@ function desdeEstado(estado, opciones) {
       veredicto: h.veredicto || null,
       comentario: h.comentario || "",
     };
+    // la clasificacion viaja como el veredicto y el comentario; partida.js no
+    // la interpreta, solo la lleva: quien manda sobre los ejes es clasificacion.js
+    if (h.clasificacion) j.clasificacion = h.clasificacion;
     /* Solo un combinado registra con que sistema jugo, y solo si dejo pensada:
        la marca y el sistema viajan juntos o no viajan (el texto escribe el
        sufijo detras de la pensada, asi que sin pensada no habria donde ponerlo). */
@@ -126,6 +158,7 @@ function desdeEstado(estado, opciones) {
   // escueto: solo si no es el de por defecto, para que una partida que no lo
   // usa quede igual que antes y las viejas vuelvan sin campos nuevos
   if (SALIDAS_OK.includes(o.convenio) && o.convenio !== _CONV_DEF) p.convenio = o.convenio;
+  if (o.clasificacion) p.clasificacion = o.clasificacion;
   if (o.resultado) p.resultado = o.resultado;
   if (o.marcador) p.marcador = o.marcador;
   return p;
@@ -152,6 +185,7 @@ function posicionEn(partida, n) {
     if (i < hechas.length) {
       sq.pensada = hechas[i].pensada || null;
       sq.sistema = hechas[i].sistema || null;
+      sq.clasificacion = hechas[i].clasificacion || null;
       sq.veredicto = hechas[i].veredicto || null;
       i++;
     }
@@ -178,6 +212,7 @@ function posicionEn(partida, n) {
     ? { jugador: asiento(j.jugador), paso: true, pensada: null, veredicto: j.veredicto || null, comentario: j.comentario || null }
     : { jugador: asiento(j.jugador), ficha: norm(j.ficha), punta: j.lado || null,
         pensada: j.pensada || null, sistema: j.sistema || null,
+        clasificacion: j.clasificacion || null,
         veredicto: j.veredicto || null, comentario: j.comentario || null });
 
   const ultimo = hechas.length ? asiento(hechas[hechas.length - 1].jugador) : null;
@@ -343,6 +378,7 @@ function aTexto(partida) {
   L.push(meta.join(" · "));
 
   if (partida.etiquetas && partida.etiquetas.length) L.push("Etiquetas: " + partida.etiquetas.join(", "));
+  if (partida.clasificacion) L.push("Clasificacion: " + _clasTexto(partida.clasificacion));
 
   const nombres = ASIENTOS.filter(a => (partida.jugadores[a] || {}).nombre);
   if (nombres.length) L.push("Jugadores: " + ASIENTOS.map(a =>
@@ -380,6 +416,9 @@ function aTexto(partida) {
     if (j.veredicto) s += " " + VEREDICTOS[j.veredicto];
     if (j.comentario) s += ' "' + j.comentario.replace(/"/g, "'") + '"';
     L.push(s);
+    // la clasificacion de una jugada va en su propia linea, con + delante:
+    // meterla en la misma la dejaria ilegible
+    if (j.clasificacion) L.push("   + " + _clasTexto(j.clasificacion));
   });
 
   if (partida.variante_de) L.push("Variante de: " + (partida.variante_de.id || "?") + " en la jugada " + partida.variante_de.n);
@@ -415,6 +454,19 @@ function desdeTexto(texto) {
 
     let m;
     if ((m = /^#\s*partida\s*:?\s*(.*)$/i.exec(linea))) { p.titulo = m[1].trim(); return; }
+    if (/^clasificacion\s*:/i.test(linea)) {
+      const c = _clasDesde(linea.replace(/^clasificacion\s*:/i, ""));
+      if (c) p.clasificacion = c;
+      return;
+    }
+    // "   + momento medio ..." clasifica la ultima jugada leida
+    if (/^\+\s*/.test(linea)) {
+      const c = _clasDesde(linea.replace(/^\+\s*/, ""));
+      const ult = p.jugadas[p.jugadas.length - 1];
+      if (c && ult) ult.clasificacion = c;
+      else if (c) p.clasificacion = c;
+      return;
+    }
     if (/^etiquetas\s*:/i.test(linea)) {
       p.etiquetas = linea.replace(/^etiquetas\s*:/i, "").split(/[,;]/).map(x => x.trim()).filter(Boolean); return;
     }

@@ -1199,6 +1199,7 @@ function partidaActual(extra){
     titulo:(partidaAbierta&&partidaAbierta.titulo)||"",
     etiquetas:(partidaAbierta&&partidaAbierta.etiquetas)||[],
     notas:(partidaAbierta&&partidaAbierta.notas)||"",
+    clasificacion:(partidaAbierta&&partidaAbierta.clasificacion)||null,
     fecha:ahoraISO(), autor:"",
   },extra||{});
   if(GS) return desdeEstado(GS,o);
@@ -1368,14 +1369,19 @@ function confirmarPerdida(seguir){
 }
 $("#tbNueva").onclick=nuevaPartida;
 
-function panelBiblioteca(){
-  const lista=leerBiblioteca();
+function panelBiblioteca(filtros){
+  filtros=filtros||{temas:[]};
+  const todas=leerBiblioteca().map(e=>Object.assign({},e,
+    {clasificacion:e.clasificacion||(e.partida&&e.partida.clasificacion)||null}));
+  const lista=filtrar(todas,filtros);
   const filas=lista.slice().reverse().map(e=>{
     let f=""; try{f=new Date(e.fecha).toLocaleString();}catch(x){f=e.fecha||"";}
     return `<div class="saveitem" style="flex-wrap:wrap">
       <div class="nm" title="${(e.titulo||"").replace(/"/g,"'")}">${e.titulo||"(sin título)"}</div>
       <div class="dt">${f}</div>
       <div class="muted" style="width:100%;font-size:.68rem">${e.jugadas||0} jugadas · ${e.modo||"simulador"}${(e.etiquetas&&e.etiquetas.length)?" · "+e.etiquetas.join(", "):""}</div>
+      ${(()=>{const r=resumenClasificacion(e.clasificacion);
+        return (r.ejes||r.temas)?`<div class="muted" style="width:100%;font-size:.66rem">${r.ejes}${r.temas?" · "+r.temas:""}</div>`:"";})()}
       <div class="btnrow" style="width:100%;margin-top:4px">
         <button class="btn gold" data-abrir="${e.id}">Abrir</button>
         <button class="btn ghost" data-dup="${e.id}">Duplicar</button>
@@ -1385,12 +1391,14 @@ function panelBiblioteca(){
   }).join("")||`<div class="muted center">Aún no hay partidas guardadas.</div>`;
   dpanel(`<div class="ovcard" style="max-height:82vh;overflow:auto">
     <div class="center" style="margin-bottom:6px"><b>📚 Biblioteca de partidas</b></div>
-    <div class="saves">${filas}</div>
+    ${barraFiltros(todas,filtros)}
+    <div class="saves" style="margin-top:6px">${filas}</div>
     <div class="btnrow grow" style="margin-top:8px">
       <button class="btn ghost" id="btnGuardarAqui">Guardar la actual</button>
       <button class="btn ghost" onclick="clearPanel()">Cerrar</button>
     </div></div>`);
-  $("#btnGuardarAqui").onclick=()=>{guardarEnBiblioteca(false);panelBiblioteca();};
+  conectarFiltros(todas,filtros,f=>panelBiblioteca(f));
+  $("#btnGuardarAqui").onclick=()=>{guardarEnBiblioteca(false);panelBiblioteca(filtros);};
   const dame=id=>leerBiblioteca().find(x=>x.id===id);
   document.querySelectorAll("#dpanel [data-abrir]").forEach(b=>b.onclick=()=>{const e=dame(b.dataset.abrir);if(e)cargarPartida(e.partida);});
   document.querySelectorAll("#dpanel [data-dup]").forEach(b=>b.onclick=()=>{
@@ -1431,6 +1439,7 @@ function panelDatosPartida(){
     <input id="pEtiq" class="txtcampo" value="${(a.etiquetas||[]).join(", ").replace(/"/g,"&quot;")}">
     <label class="fld">Notas</label>
     <textarea id="pNotas" class="txtpartida" style="height:70px">${(a.notas||"").replace(/</g,"&lt;")}</textarea>
+    ${editorClasificacion(a.clasificacion,"pc","Clasificación de la partida entera")}
     <div class="btnrow grow" style="margin-top:8px">
       <button class="btn gold" id="pOk">Guardar datos</button>
       <button class="btn ghost" onclick="clearPanel()">Cerrar</button>
@@ -1440,12 +1449,17 @@ function panelDatosPartida(){
       titulo:$("#pTitulo").value.trim(),
       etiquetas:$("#pEtiq").value.split(",").map(x=>x.trim()).filter(Boolean),
       notas:$("#pNotas").value,
+      clasificacion:leerEditorClasificacion("pc"),
     });
     // si ya estaba en la biblioteca, actualiza tambien alli
     const lista=leerBiblioteca(); const i=lista.findIndex(x=>x.id===partidaAbierta.id);
     if(i>=0){lista[i].titulo=partidaAbierta.titulo;lista[i].etiquetas=partidaAbierta.etiquetas;
       lista[i].partida.titulo=partidaAbierta.titulo;lista[i].partida.etiquetas=partidaAbierta.etiquetas;
-      lista[i].partida.notas=partidaAbierta.notas;guardarBiblioteca(lista);}
+      lista[i].partida.notas=partidaAbierta.notas;
+      lista[i].clasificacion=partidaAbierta.clasificacion||null;
+      if(partidaAbierta.clasificacion)lista[i].partida.clasificacion=partidaAbierta.clasificacion;
+      else delete lista[i].partida.clasificacion;
+      guardarBiblioteca(lista);}
     clearPanel();toast("Datos guardados");
   };
 }
@@ -1560,6 +1574,13 @@ function panelJugada(n){
      jugando en ese momento. En analisis se puede corregir; en una partida
      compartida solo se mira. */
   const cfgJ=configJugador((p.jugadores||{})[j.jugador]);
+  /* Lo deducible se SUGIERE, no se impone: si la jugada aun no esta
+     clasificada se parte del momento por el numero de jugada y del sistema
+     del propio jugador, y se puede cambiar todo. */
+  const clasJugada=j.clasificacion||(()=>{
+    let mano=null; try{ mano=(posicionEn(p,n-1).manos[j.jugador]||[]).length; }catch(e){}
+    return paraGuardar({momento:momentoSugerido(n,mano),sistema:cfgJ.sistema});
+  })();
   const esComb=cfgJ.sistema==="combinado"&&!j.pase;
   const sisJ=esComb?(j.sistema||cfgJ.inicial):null;
   const botSis=(v,txt)=>`<button class="btn ${sisJ===v?"gold":"ghost"}" data-sis="${v}">${txt}</button>`;
@@ -1585,6 +1606,13 @@ function panelJugada(n){
     </div>
     ${bloqueSis}
     <div class="probpanel" style="margin-top:8px">
+      ${analisis.soloLectura
+        ? (()=>{const r=resumenClasificacion(j.clasificacion);
+                return `<div class="muted" style="font-size:.72rem">Clasificación</div>`+
+                  `<div style="font-size:.76rem">${r.ejes||"sin clasificar"}${r.temas?" · "+r.temas:""}</div>`;})()
+        : editorClasificacion(clasJugada,"jc","Clasificación de esta jugada (se sugiere lo deducible; cámbialo)")}
+    </div>
+    <div class="probpanel" style="margin-top:8px">
       <div class="muted" style="font-size:.72rem;margin-bottom:4px">Sugerir aquí (solo con lo que ${j.jugador} sabía):</div>
       ${!est?'<div class="muted">No se conoce su mano.</div>'
         :!sug?'<div class="muted">Sin jugada posible.</div>'
@@ -1602,6 +1630,7 @@ function panelJugada(n){
     </div>
     <div class="btnrow grow" style="margin-top:6px">
       <button class="btn blue" id="jProbar">🔀 Probar desde aquí</button>
+      ${j.pase?"":'<button class="btn ghost" id="jEjercicio">\u{1F393} Convertir en ejercicio</button>'}
     </div></div>`);
   document.querySelectorAll("#dpanel [data-vd]").forEach(b=>b.onclick=()=>{
     j.veredicto=b.dataset.vd||null; panelJugada(n);
@@ -1610,7 +1639,16 @@ function panelJugada(n){
     if($("#jComent")) j.comentario=$("#jComent").value;
     j.sistema=b.dataset.sis; analisisPintar(); panelJugada(n);
   });
-  const gb=$("#jGuardar"); if(gb) gb.onclick=()=>{ j.comentario=$("#jComent").value; guardarAnalisis(); panelHistorial(); };
+  const gb=$("#jGuardar"); if(gb) gb.onclick=()=>{
+    j.comentario=$("#jComent").value;
+    const c=leerEditorClasificacion("jc"); if(c)j.clasificacion=c; else delete j.clasificacion;
+    guardarAnalisis(); panelHistorial();
+  };
+  const eb=$("#jEjercicio"); if(eb) eb.onclick=()=>{
+    if($("#jComent")) j.comentario=$("#jComent").value;
+    const c=leerEditorClasificacion("jc"); if(c)j.clasificacion=c;
+    crearEjercicio(analisis.partida,n,{clasificacion:c,explicacion:j.comentario||""});
+  };
   $("#jVolver").onclick=()=>{ if($("#jComent")) j.comentario=$("#jComent").value; panelHistorial(); };
   $("#jProbar").onclick=()=>probarDesdeAqui(n);
 }
@@ -2012,6 +2050,288 @@ window.addEventListener("resize",()=>cerrarMenu(false));
 
 $("#tbGuardar").onclick=()=>{ if(soloLectura()){guardarCompartida();return;} guardarEnBiblioteca(false); };
 $("#tbGuardarComo").onclick=()=>guardarEnBiblioteca(true);
+
+/* ================= CLASIFICACION, EJERCICIOS, FILTROS E IMPRESION =========
+   Los cuatro ejes salen de clasificacion.js y SOLO de ahi: este fichero no
+   escribe ni un tema a mano. Anadir uno es tocar aquella lista. */
+
+const CLAVE_EJERCICIOS = "ejercicios_v1";
+function leerEjercicios(){
+  let l=[]; try{ l=JSON.parse(localStorage.getItem(CLAVE_EJERCICIOS)||"[]"); }catch(e){ l=[]; }
+  return Array.isArray(l)?l:[];
+}
+function guardarEjercicios(l){
+  try{ localStorage.setItem(CLAVE_EJERCICIOS, JSON.stringify(l)); }
+  catch(e){ toast("No se pudo guardar: memoria llena"); }
+}
+
+/* ---------- editor de clasificacion, reutilizable ----------
+   pref distingue varios editores en el mismo panel. Los temas son casillas
+   porque son varios; el resto, desplegables porque son uno. */
+function editorClasificacion(c, pref, titulo){
+  const n = normalizarClas(c);
+  const sel=(eje,campo,valor,vacio)=>
+    `<select class="txtcampo clasel" id="${pref}-${campo}" style="font-size:.76rem;padding:4px 6px">`+
+    `<option value="">${vacio}</option>`+
+    EJES[eje].map(x=>`<option value="${x.id}"${valor===x.id?" selected":""}>${x.nombre}${x.ayuda?" — "+x.ayuda:""}</option>`).join("")+
+    `</select>`;
+  const temas = TEMAS.map(t=>
+    `<label class="chip${n.temas.indexOf(t.id)>=0?" on":""}">`+
+    `<input type="checkbox" data-tema="${pref}" value="${t.id}"${n.temas.indexOf(t.id)>=0?" checked":""}>`+
+    `${t.nombre}</label>`).join("");
+  return `<div class="clasbloque">
+    ${titulo?`<div class="muted" style="font-size:.72rem;margin-bottom:4px">${titulo}</div>`:""}
+    <label class="fld">Momento</label>${sel("momento","momento",n.momento,"(sin indicar)")}
+    <label class="fld">Sistema implicado</label>${sel("sistema","sistema",n.sistema,"(sin indicar)")}
+    <label class="fld">Dificultad</label>${sel("dificultad","dificultad",n.dificultad,"(sin indicar)")}
+    <label class="fld">Origen</label>${sel("origen","origen",n.origen,"(sin indicar)")}
+    <label class="fld">Temas</label><div class="chips">${temas}</div>
+  </div>`;
+}
+function leerEditorClasificacion(pref){
+  const v=campo=>{const e=$("#"+pref+"-"+campo);return e?e.value||null:null;};
+  const temas=[...document.querySelectorAll(`[data-tema="${pref}"]:checked`)].map(x=>x.value);
+  return paraGuardar({momento:v("momento"),sistema:v("sistema"),
+                      dificultad:v("dificultad"),origen:v("origen"),temas:temas});
+}
+// la casilla se pinta sola al marcarla
+document.addEventListener("change",ev=>{
+  const b=ev.target.closest("[data-tema]");
+  if(b&&b.parentElement)b.parentElement.classList.toggle("on",b.checked);
+});
+
+/* ---------- etiquetas legibles de una clasificacion ---------- */
+function resumenClasificacion(c){
+  const n=normalizarClas(c), p=[];
+  if(n.momento)p.push(nombreDe("momento",n.momento));
+  if(n.dificultad)p.push(nombreDe("dificultad",n.dificultad));
+  if(n.sistema)p.push(nombreDe("sistema",n.sistema));
+  const t=nombresTemas(n.temas);
+  return {ejes:p.join(" · "), temas:t.join(", ")};
+}
+
+/* ---------- panel de filtros, comun a partidas y ejercicios ----------
+   En movil es un panel que se abre y se cierra: una barra fija empujaria la
+   lista fuera de la pantalla, que es justo lo que no queremos. */
+let filtrosAbiertos=false;
+function barraFiltros(lista, filtros, alCambiar){
+  const total=lista.length, quedan=filtrar(lista,filtros).length;
+  const activos=hayFiltro(filtros);
+  return `<div class="filtrobarra">
+      <button class="btn ${activos?"gold":"ghost"}" id="fAbrir">⚙ Filtros${activos?" · activos":""}</button>
+      <span class="muted" style="font-size:.74rem">${quedan} de ${total}</span>
+      ${activos?'<button class="btn ghost" id="fLimpiar">Quitar</button>':""}
+    </div>
+    ${filtrosAbiertos?panelDeFiltros(lista,filtros):""}`;
+}
+function panelDeFiltros(lista, filtros){
+  const c=(eje)=>cuenta(lista,filtros,eje);
+  const uno=(eje,campo)=>{
+    const n=c(eje);
+    return `<label class="fld">${{momento:"Momento",sistema:"Sistema",dificultad:"Dificultad",origen:"Origen"}[campo]}</label>`+
+      `<select class="txtcampo filsel" data-filtro="${campo}" style="font-size:.76rem;padding:4px 6px">`+
+      `<option value="">(todos)</option>`+
+      EJES[eje].map(x=>`<option value="${x.id}"${filtros[campo]===x.id?" selected":""}>${x.nombre} (${n[x.id]})</option>`).join("")+
+      `</select>`;
+  };
+  const nT=c("tema");
+  const temas=TEMAS.map(t=>{
+    const on=(filtros.temas||[]).indexOf(t.id)>=0;
+    const n=on?filtrar(lista,filtros).length:nT[t.id];
+    return `<label class="chip${on?" on":""}${!on&&!n?" cero":""}">`+
+      `<input type="checkbox" data-filtrotema value="${t.id}"${on?" checked":""}>${t.nombre} <b>${n}</b></label>`;
+  }).join("");
+  return `<div class="filtropanel">
+    ${uno("momento","momento")}${uno("dificultad","dificultad")}
+    ${uno("sistema","sistema")}${uno("origen","origen")}
+    <label class="fld">Temas <span class="muted" style="font-weight:400">(pide todos los marcados)</span></label>
+    <div class="chips">${temas}</div>
+  </div>`;
+}
+
+/* ---------- ejercicios ---------- */
+function crearEjercicio(partida, n, extra){
+  const ej=desdeJugada(partida, n, extra||{});
+  if(!ej){toast("Un pase no se puede convertir en ejercicio");return null;}
+  ej.id="e-"+Math.random().toString(36).slice(2,10);
+  ej.fecha=ahoraISO();
+  if(!ej.titulo)ej.titulo=(partida.titulo||"Partida")+" · jugada "+n;
+  const v=validarEjercicio(ej);
+  if(!v.ok){toast("No se pudo crear: "+v.errores[0]);return null;}
+  const l=leerEjercicios(); l.push(ej); guardarEjercicios(l);
+  toast("Ejercicio guardado");
+  return ej;
+}
+
+/* Diagrama de la mesa para la ficha y para la hoja impresa: la linea de
+   fichas en el orden en que estan puestas. No usa la geometria de la mesa,
+   que necesita medir el DOM y no sirve para imprimir. */
+function diagramaMesa(pos){
+  const seq=(pos.secuencia||[]).map(s=>kt(s.ficha));
+  if(!seq.length)return `<div class="muted">Mesa vacía</div>`;
+  let linea; try{ linea=orientedLine(seq); }catch(e){ linea=seq.map(t=>({a:t[0],b:t[1]})); }
+  return `<div class="diagrama">`+
+    linea.map(x=>tileHTML(x.a,x.b,"sm"+(x.a===x.b?" vert":""))).join("")+`</div>`;
+}
+function manoHTML(fichas){
+  return `<div class="diagrama">`+(fichas||[]).map(k=>tileK(k,"sm")).join("")+`</div>`;
+}
+
+function panelEjercicios(filtros){
+  filtros=filtros||{temas:[]};
+  const todos=leerEjercicios();
+  const lista=filtrar(todos,filtros);
+  const marcados=new Set(panelEjercicios._sel||[]);
+  const filas=lista.slice().reverse().map(ej=>{
+    const r=resumenClasificacion(ej.clasificacion);
+    return `<div class="saveitem" style="flex-wrap:wrap">
+      <label class="nm" style="display:flex;gap:6px;align-items:center">
+        <input type="checkbox" data-ejsel value="${ej.id}"${marcados.has(ej.id)?" checked":""}>
+        <span>${(ej.titulo||"(sin título)").replace(/</g,"&lt;")}</span></label>
+      <div class="muted" style="width:100%;font-size:.68rem">${r.ejes||"sin clasificar"}${r.temas?" · "+r.temas:""}</div>
+      <div class="btnrow" style="width:100%;margin-top:4px">
+        <button class="btn gold" data-ejver="${ej.id}">Ver</button>
+        <button class="btn ghost" data-ejclas="${ej.id}">Clasificar</button>
+        <button class="btn red" data-ejdel="${ej.id}">Borrar</button>
+      </div></div>`;
+  }).join("")||`<div class="muted center">No hay ejercicios con esos filtros.</div>`;
+  dpanel(`<div class="ovcard" style="max-height:82vh;overflow:auto">
+    <div class="center" style="margin-bottom:6px"><b>\u{1F393} Ejercicios</b></div>
+    ${barraFiltros(todos,filtros)}
+    <div class="saves" style="margin-top:6px">${filas}</div>
+    <div class="btnrow grow" style="margin-top:8px">
+      <button class="btn blue" id="ejImprimir">\u{1F5A8} Imprimir hoja</button>
+      <button class="btn ghost" id="ejTodos">Marcar los ${lista.length}</button>
+    </div>
+    <div class="btnrow grow" style="margin-top:6px">
+      <button class="btn ghost" onclick="clearPanel()">Cerrar</button></div></div>`);
+
+  const refresca=f=>{panelEjercicios(f);};
+  conectarFiltros(todos,filtros,refresca);
+  document.querySelectorAll("#dpanel [data-ejsel]").forEach(b=>b.onclick=()=>{
+    const s=new Set(panelEjercicios._sel||[]);
+    if(b.checked)s.add(b.value); else s.delete(b.value);
+    panelEjercicios._sel=[...s];
+  });
+  $("#ejTodos").onclick=()=>{panelEjercicios._sel=lista.map(e=>e.id);panelEjercicios(filtros);};
+  $("#ejImprimir").onclick=()=>panelImprimir(
+    (panelEjercicios._sel&&panelEjercicios._sel.length)
+      ? todos.filter(e=>panelEjercicios._sel.indexOf(e.id)>=0) : lista);
+  document.querySelectorAll("#dpanel [data-ejver]").forEach(b=>b.onclick=()=>verEjercicio(b.dataset.ejver,filtros));
+  document.querySelectorAll("#dpanel [data-ejclas]").forEach(b=>b.onclick=()=>clasificarEjercicio(b.dataset.ejclas,filtros));
+  document.querySelectorAll("#dpanel [data-ejdel]").forEach(b=>b.onclick=()=>{
+    let ok=false; try{ok=confirm("¿Borrar el ejercicio?");}catch(x){ok=true;}
+    if(!ok)return;
+    guardarEjercicios(leerEjercicios().filter(e=>e.id!==b.dataset.ejdel));
+    panelEjercicios(filtros);
+  });
+}
+/* Los filtros se conectan igual en ejercicios y en la biblioteca. */
+function conectarFiltros(lista, filtros, refresca){
+  const f=$("#fAbrir"); if(f)f.onclick=()=>{filtrosAbiertos=!filtrosAbiertos;refresca(filtros);};
+  const l=$("#fLimpiar"); if(l)l.onclick=()=>refresca({temas:[]});
+  document.querySelectorAll("#dpanel .filsel").forEach(sel=>sel.onchange=()=>{
+    const n=Object.assign({},filtros); n[sel.dataset.filtro]=sel.value||null; refresca(n);
+  });
+  document.querySelectorAll("#dpanel [data-filtrotema]").forEach(b=>b.onchange=()=>{
+    const t=new Set(filtros.temas||[]);
+    if(b.checked)t.add(b.value); else t.delete(b.value);
+    refresca(Object.assign({},filtros,{temas:[...t]}));
+  });
+}
+function verEjercicio(id, filtros){
+  const ej=leerEjercicios().find(e=>e.id===id);
+  if(!ej)return;
+  const pos=posicionEjercicio(ej), mano=manoDeEjercicio(ej);
+  dpanel(`<div class="ovcard" style="max-height:82vh;overflow:auto">
+    <div class="center" style="margin-bottom:4px"><b>${(ej.titulo||"Ejercicio").replace(/</g,"&lt;")}</b></div>
+    <div class="probpanel">${diagramaMesa(pos)}</div>
+    <div class="muted" style="font-size:.72rem;margin-top:6px">Mano de ${NOMBRE_ASIENTO[ej.jugador]}:</div>
+    ${manoHTML(mano)}
+    <div style="font-size:.8rem;margin-top:6px">${enunciadoEjercicio(ej)}</div>
+    <div class="probpanel" style="margin-top:8px">
+      <div class="muted" style="font-size:.72rem">Solución</div>
+      <div style="font-weight:800">${solucionTextoEjercicio(ej)}</div>
+      ${ej.explicacion?`<div class="muted" style="font-size:.72rem;margin-top:4px">${ej.explicacion.replace(/</g,"&lt;")}</div>`:""}
+    </div>
+    <div class="btnrow grow" style="margin-top:8px">
+      <button class="btn ghost" id="ejVolver">← Ejercicios</button></div></div>`);
+  $("#ejVolver").onclick=()=>panelEjercicios(filtros);
+}
+function clasificarEjercicio(id, filtros){
+  const l=leerEjercicios(), ej=l.find(e=>e.id===id);
+  if(!ej)return;
+  dpanel(`<div class="ovcard" style="max-height:82vh;overflow:auto">
+    <div class="center" style="margin-bottom:6px"><b>Clasificar</b></div>
+    <label class="fld">Título</label>
+    <input id="ejTitulo" class="txtcampo" value="${(ej.titulo||"").replace(/"/g,"&quot;")}">
+    ${editorClasificacion(ej.clasificacion,"ejc")}
+    <label class="fld">Explicación</label>
+    <textarea id="ejExpl" class="txtpartida" style="min-height:60px">${(ej.explicacion||"").replace(/</g,"&lt;")}</textarea>
+    <div class="btnrow grow" style="margin-top:8px">
+      <button class="btn gold" id="ejOk">Guardar</button>
+      <button class="btn ghost" id="ejCancel">Cancelar</button></div></div>`);
+  $("#ejOk").onclick=()=>{
+    ej.titulo=$("#ejTitulo").value.trim();
+    ej.explicacion=$("#ejExpl").value;
+    ej.clasificacion=leerEditorClasificacion("ejc");
+    guardarEjercicios(l); toast("Clasificado"); panelEjercicios(filtros);
+  };
+  $("#ejCancel").onclick=()=>panelEjercicios(filtros);
+}
+
+/* ---------- hoja imprimible ---------- */
+function panelImprimir(ejs){
+  if(!ejs.length){toast("No hay ejercicios que imprimir");return;}
+  dpanel(`<div class="ovcard">
+    <div class="center" style="margin-bottom:6px"><b>\u{1F5A8} Imprimir hoja</b></div>
+    <div class="muted" style="font-size:.74rem">${ejs.length} ejercicio${ejs.length===1?"":"s"}.</div>
+    <label class="fld">Título del taller</label>
+    <input id="hjTitulo" class="txtcampo" value="Taller de dominó">
+    <label class="fld">Fecha</label>
+    <input id="hjFecha" class="txtcampo" value="${new Date().toLocaleDateString()}">
+    <label class="chip on" style="margin-top:8px"><input type="checkbox" id="hjSol"> Incluir las soluciones</label>
+    <div class="btnrow grow" style="margin-top:10px">
+      <button class="btn blue" id="hjOk">Imprimir</button>
+      <button class="btn ghost" onclick="clearPanel()">Cancelar</button></div></div>`);
+  $("#hjOk").onclick=()=>{
+    construirHoja(ejs,{titulo:$("#hjTitulo").value,fecha:$("#hjFecha").value,soluciones:$("#hjSol").checked});
+    clearPanel();
+    setTimeout(()=>{try{window.print();}catch(e){toast("Usa Ctrl+P para imprimir");}},80);
+  };
+}
+function construirHoja(ejs,o){
+  const h=document.getElementById("hoja"); if(!h)return;
+  const cab=`<div class="hojacab">
+      <div class="hojatitulo">${(o.titulo||"Taller de dominó").replace(/</g,"&lt;")}</div>
+      <div class="hojameta"><span>${(o.fecha||"").replace(/</g,"&lt;")}</span>
+        <span class="hojanombre">Nombre: ______________________________</span></div>
+    </div>`;
+  const cuerpo=ejs.map((ej,i)=>{
+    const pos=posicionEjercicio(ej), mano=manoDeEjercicio(ej);
+    return `<section class="hojaej">
+      <div class="hojaenum">${i+1}</div>
+      <div class="hojacuerpo">
+        <div class="hojasub">Mesa</div>${diagramaMesa(pos)}
+        <div class="hojasub">Mano de ${NOMBRE_ASIENTO[ej.jugador]}</div>${manoHTML(mano)}
+        <div class="hojapide">${enunciadoEjercicio(ej)}</div>
+        <div class="hojarespuesta">
+          <span>Ficha: <u>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</u></span>
+          <span>Pensada: <u>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</u></span>
+        </div>
+      </div></section>`;
+  }).join("");
+  const sol=o.soluciones?`<section class="hojasol">
+      <div class="hojatitulo">Soluciones</div>
+      ${ejs.map((ej,i)=>{
+        const r=resumenClasificacion(ej.clasificacion);
+        return `<div class="hojasolitem"><b>${i+1}.</b> ${solucionTextoEjercicio(ej)}
+          ${ej.explicacion?`<div class="hojaexpl">${ej.explicacion.replace(/</g,"&lt;")}</div>`:""}
+          ${r.temas?`<div class="hojatemas">Entrena: ${r.temas}</div>`:""}</div>`;
+      }).join("")}</section>`:"";
+  h.innerHTML=cab+cuerpo+sol;
+}
+$("#tbEjercicios").onclick=()=>panelEjercicios({temas:[]});
 
 // arranque: entra directo a la mesa, vacía hasta que se reparta (Al Azar / Reparto)
 buildPicker();

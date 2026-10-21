@@ -118,6 +118,7 @@
             <button class="mi" role="menuitem" id="tbGuardar"><span class="ic">&#128190;</span><span class="tx">Guardar partida</span></button>
             <button class="mi" role="menuitem" id="tbGuardarComo"><span class="ic">&#128209;</span><span class="tx">Guardar como&hellip;</span></button>
             <button class="mi" role="menuitem" id="tbBiblio"><span class="ic">&#128218;</span><span class="tx">Mis partidas</span></button>
+            <button class="mi" role="menuitem" id="tbEjercicios"><span class="ic">&#127891;</span><span class="tx">Ejercicios</span></button>
             <hr>
             <button class="mi" role="menuitem" id="tbCopiar"><span class="ic">&#128203;</span><span class="tx">Copiar como texto</span></button>
             <button class="mi" role="menuitem" id="tbPegar"><span class="ic">&#128229;</span><span class="tx">Pegar una partida</span></button>
@@ -184,10 +185,14 @@
   <div class="foot">Asistente heurístico · las sugerencias son orientativas.</div>
 </div>
 <div class="toast" id="toast"></div>
+<!-- Hoja imprimible: oculta en pantalla, es lo unico que sale por la impresora -->
+<div id="hoja" class="hoja" aria-hidden="true"></div>
 
 <script src="engine.js"></script>
 <script src="conocimiento.js"></script>
+<script src="clasificacion.js"></script>
 <script src="partida.js"></script>
+<script src="ejercicios.js"></script>
 <script src="nube.js"></script>
 <script src="ui.js"></script>
 <script src="reparto.js"></script>

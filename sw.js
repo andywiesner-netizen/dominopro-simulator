@@ -4,7 +4,8 @@
    la version vieja. scripts/bump-sw.ps1 lo hace solo. */
 const CACHE = "domino-v10";
 const ASSETS = [
-  "./", "./index.html", "./styles.css", "./engine.js", "./conocimiento.js", "./partida.js", "./nube.js", "./ui.js",
+  "./", "./index.html", "./styles.css", "./engine.js", "./conocimiento.js", "./clasificacion.js", "./partida.js",
+  "./ejercicios.js", "./nube.js", "./ui.js",
   "./manifest.webmanifest",
   "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"
 ];

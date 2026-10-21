@@ -268,6 +268,59 @@
   /* Hasta tres por banda (sistema, inicial del combinado y salida): en bloque
      y sin pasarse del ancho de la banda, que a 320px se salia. Cada uno con su
      rotulo encima, que si no son dos desplegables identicos. */
+  /* ---- clasificacion: casillas de tema y panel de filtros ---- */
+  .clasbloque{margin-top:8px;}
+  .chips{display:flex; flex-wrap:wrap; gap:4px; margin-top:3px;}
+  .chip{display:inline-flex; align-items:center; gap:4px; font-size:.68rem; font-weight:700;
+        padding:4px 8px; min-height:28px; border-radius:14px; cursor:pointer;
+        border:1px solid rgba(255,255,255,.22); background:rgba(0,0,0,.25); color:var(--ivory);}
+  .chip.on{background:var(--gold); color:#3a2c00; border-color:var(--gold);}
+  .chip.cero{opacity:.45;}
+  .chip input{margin:0; width:12px; height:12px;}
+  .filtrobarra{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:4px;}
+  /* el panel se abre y se cierra: una barra fija empujaria la lista fuera de
+     la pantalla en el movil, que es justo lo que no queremos */
+  .filtropanel{background:rgba(0,0,0,.25); border-radius:10px; padding:8px; margin-bottom:6px;}
+
+  /* ================= HOJA IMPRIMIBLE =================
+     En pantalla no existe; al imprimir es lo unico que sale. Blanco y negro:
+     las fichas tienen que leerse en una laser, sin fondos verdes. */
+  .hoja{display:none;}
+  @media print{
+    @page{ margin:14mm; }
+    body{background:#fff !important; color:#000 !important; padding:0 !important;}
+    body > *{display:none !important;}
+    body > .hoja{display:block !important;}
+    .hoja{font-family:Georgia,"Times New Roman",serif; color:#000;}
+    .hojacab{border-bottom:2px solid #000; padding-bottom:6px; margin-bottom:10px;}
+    .hojatitulo{font-size:17pt; font-weight:700;}
+    .hojameta{display:flex; justify-content:space-between; font-size:10pt; margin-top:4px;}
+    .hojanombre{font-size:10pt;}
+    /* que no se parta un ejercicio entre dos paginas */
+    .hojaej{display:flex; gap:8mm; padding:4mm 0; border-bottom:1px solid #bbb;
+            page-break-inside:avoid; break-inside:avoid;}
+    .hojaenum{font-size:15pt; font-weight:700; min-width:8mm;}
+    .hojacuerpo{flex:1;}
+    .hojasub{font-size:8.5pt; text-transform:uppercase; letter-spacing:.5px; color:#444; margin-top:3mm;}
+    .hojapide{font-size:11pt; margin-top:3mm;}
+    .hojarespuesta{display:flex; gap:12mm; font-size:11pt; margin-top:4mm;}
+    .hojasol{page-break-before:always; break-before:page;}
+    .hojasolitem{font-size:10.5pt; margin:3mm 0; page-break-inside:avoid; break-inside:avoid;}
+    .hojaexpl{font-size:9.5pt; color:#333; margin-top:1mm;}
+    .hojatemas{font-size:9pt; color:#555; font-style:italic;}
+    .diagrama{display:flex; flex-wrap:wrap; gap:2mm; margin-top:1.5mm;}
+    /* fichas en tinta: borde negro, fondo blanco, puntos negros */
+    .hoja .domino{background:#fff !important; border:1pt solid #000 !important;
+                  box-shadow:none !important; border-radius:1mm !important; padding:0.6mm !important;}
+    .hoja .domino .half{background:#fff !important; width:5mm !important; height:5mm !important;
+                        padding:0.5mm !important;}
+    .hoja .domino .pip{background:transparent !important; width:1.1mm !important; height:1.1mm !important;}
+    .hoja .domino .pip.on{background:#000 !important;}
+    .hoja .domino .divider{background:#000 !important; height:5mm !important; width:1pt !important;}
+    .hoja .domino.vert .divider{width:5mm !important; height:1pt !important;}
+    .hoja .star,.hoja .pmark{display:none !important;}
+  }
+
   .dealconv{margin:8px 0 2px; text-align:center;}
   .convmesa{font-size:.74rem; color:var(--ivory); display:inline-flex; align-items:center; gap:6px;
             flex-wrap:wrap; justify-content:center;}
