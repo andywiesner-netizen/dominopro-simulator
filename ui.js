@@ -327,13 +327,11 @@ function renderBand(id,pos,ctx){
   });
   if(pos===0){
     el.appendChild(wrap);
-    if(!enAnalisis()){const cc=document.createElement("div");cc.innerHTML=conmutadorCombinado(seat);if(cc.firstChild)el.appendChild(cc.firstChild);}
     if(enAnalisis()){const c=document.createElement("div");c.innerHTML=barraCursor();if(c.firstChild)el.appendChild(c.firstChild);}
     if(seat===0&&marcaAhora(0)&&!enAnalisis()){const c=document.createElement("div");c.innerHTML=conmutadorPensada();el.appendChild(c.firstChild);}
     el.appendChild(lab);
   }else{
     el.appendChild(lab);
-    if(!enAnalisis()){const cc=document.createElement("div");cc.innerHTML=conmutadorCombinado(seat);if(cc.firstChild)el.appendChild(cc.firstChild);}
     el.appendChild(wrap);
   }
 }
@@ -761,7 +759,9 @@ function cfgPorDefecto(){return {sistema:"combinado",inicial:"moderno",salida:nu
 let convenioMesa=CONVENIO_DEFECTO;
 let sistemas={0:cfgPorDefecto(),1:cfgPorDefecto(),2:cfgPorDefecto(),3:cfgPorDefecto()};
 // con que sistema juega AHORA cada combinado (null = el inicial de su config)
-let sistemaVigente={0:null,1:null,2:null,3:null};
+/* Ya no hay conmutador Clas/Mod: en combinado no se declara en que sistema va
+   cada jugada. Se juega combinado y la ambiguedad es parte del sistema; para
+   la pensada propia decide la doctrina (sistemaPorDoctrina). */
 let pensadaForzada=null;                 // Auto / CPP / SPP para tu proxima jugada
 
 function cfgDe(seat){return configJugador(sistemas[seat]);}
@@ -774,9 +774,7 @@ function aplicarConvenio(p){
 }
 function ponerSistemas(mapa){
   [0,1,2,3].forEach(i=>{ sistemas[i]=configJugador(mapa?mapa[i]:null); });
-  sistemaVigente={0:null,1:null,2:null,3:null};
 }
-// el sistema con el que un combinado esta jugando en este momento
 /* marca algo este jugador? (puede marcar solo la salida, sin sistema)
    marcaAhora mira el momento: en la salida manda la convencion, despues el
    sistema. Asi el conmutador Auto/CPP/SPP solo sale cuando sirve de algo. */
@@ -784,15 +782,17 @@ function marcaAlgo(seat){return cfgDe(seat).sistema!=="ninguno"||convenioMesa!==
 function marcaAhora(seat){
   return (!GS||GS.ends===null) ? convenioMesa!=="ninguna" : cfgDe(seat).sistema!=="ninguno";
 }
+// la secuencia de la mesa, que es lo que necesita la doctrina
+function secuenciaAnotada(){
+  if(!GS||!GS.hist)return [];
+  try{ return reconstruirMesa(GS.hist).secuencia; }catch(e){ return []; }
+}
+// con que sistema juega un combinado ahora mismo: lo decide la doctrina
 function vigenteDe(seat){
-  const c=cfgDe(seat);
-  if(c.sistema!=="combinado")return c.sistema==="ninguno"?null:c.sistema;
-  return sistemaVigente[seat]||c.inicial;
+  return sistemaPorDoctrina(secuenciaAnotada(),seat,sistemas[seat]).sistema;
 }
-// lo que se guarda en la jugada: solo los combinados registran sistema
-function sistemaDeLaJugada(seat){
-  return cfgDe(seat).sistema==="combinado"?vigenteDe(seat):null;
-}
+// la jugada ya no registra sistema: no se declara
+function sistemaDeLaJugada(){ return null; }
 function jugadasEnMesa(){return (GS&&GS.sequence?GS.sequence:[]).map(t=>key(t[0],t[1]));}
 // Calcula la pensada de una jugada ANTES de ponerla en la mesa.
 function calcularPensada(p,k,side){
@@ -862,24 +862,7 @@ document.addEventListener("change",ev=>{
   const c=cfgDe(seat);
   const [sis,ini]=sel.value.split(":");
   c.sistema=sis; if(ini)c.inicial=ini;
-  sistemaVigente[seat]=null;
   sistemas[seat]=c;
-  if(GS)simRender(); else simIdle();
-});
-/* ---- conmutador Clásico/Moderno de un combinado, en su banda ----
-   Vale para cualquier asiento: el tuyo, los de la IA y el del asistente en
-   vivo. Se cambia cuando se quiera, antes de jugar. */
-function conmutadorCombinado(seat){
-  if(cfgDe(seat).sistema!=="combinado")return "";
-  const v=vigenteDe(seat);
-  const uno=(x,txt)=>`<button class="tb ${v===x?"b-sug":"b-copiar"}" data-comb="${x}" data-cseat="${seat}" `+
-    `style="padding:2px 6px;font-size:.6rem">${txt}</button>`;
-  return `<div class="pensadabar">${uno("clasico","Clás")}${uno("moderno","Mod")}</div>`;
-}
-document.addEventListener("click",ev=>{
-  const b=ev.target.closest("[data-comb]");
-  if(!b)return;
-  sistemaVigente[+b.dataset.cseat]=b.dataset.comb;
   if(GS)simRender(); else simIdle();
 });
 /* ---- conmutador Auto / CPP / SPP junto a tu mano ---- */
@@ -921,6 +904,33 @@ function lineasDeduccion(n){
   const filas=n.opciones.map(o=>
     `<div class="muted" style="font-size:.68rem">· ${como[o.sistema]}, ${o.dice} — <b>${pct(o.peso)}</b></div>`).join("");
   return filas+`<div class="muted" style="font-size:.66rem;font-style:italic">por el momento de la mano, lo primero es más probable</div>`;
+}
+/* Lo que se ha deducido del sistema de cada contrario, en lenguaje de mesa.
+   Es lo que hace un buen jugador y lo que un principiante no sabe hacer. */
+const NOMBRE_SIS_LARGO={clasico:"clásico",moderno:"moderno",combinado:"combinado",ninguno:"ningún sistema"};
+function bloqueCreencias(cre){
+  if(!cre)return "";
+  const filas=Object.keys(cre).map(j=>{
+    const c=cre[j];
+    if(!c||!c.jugadas)return `<div class="muted" style="font-size:.7rem">${ROLE[j]}: aún no ha jugado nada que leer.</div>`;
+    const pct=Math.round((c.prob[c.mejor]||0)*100);
+    const pl=(n,una,varias)=>n+" "+(n===1?una:varias);
+    const sinPistas=!c.aciertos&&!c.fallos&&!c.sinMarca;
+    const seguro=sinPistas?"de momento solo cabe suponer"
+               :pct>=55?"probablemente juega":pct>=40?"puede que juegue":"no está claro, quizá";
+    let visto;
+    if(c.sinMarca&&!c.marcadas) visto=`lleva ${pl(c.sinMarca,"jugada","jugadas")} sin marcar`;
+    else if(c.aciertos&&c.fallos) visto=`lleva ${pl(c.aciertos,"jugada que encaja","jugadas que encajan")} y ${c.fallos} que no`;
+    else if(c.aciertos) visto=`lleva ${pl(c.aciertos,"jugada que encaja","jugadas que encajan")} de ${c.marcadas}`;
+    else if(c.fallos) visto=`lleva ${pl(c.fallos,"jugada que no encaja","jugadas que no encajan")} con nada`;
+    else visto=`lleva ${pl(c.marcadas,"jugada marcada","jugadas marcadas")} que aún no dicen nada`;
+    return `<div class="row"><span>${ROLE[j]} ${visto}: ${seguro} <b>${NOMBRE_SIS_LARGO[c.mejor]}</b></span>`+
+      `<span class="muted">${pct}%</span></div>`;
+  }).join("");
+  return `<div class="probpanel" style="margin-top:8px">
+    <div class="muted" style="font-size:.72rem;margin-bottom:4px">Qué sistema parece que llevan los contrarios:</div>${filas}
+    <div class="muted" style="font-size:.66rem;margin-top:4px">El sistema del compañero se sabe, porque se acordó antes. El de ellos hay que deducirlo viéndolos jugar.</div>
+  </div>`;
 }
 function bloqueLecturas(lecturas){
   if(!lecturas||!lecturas.length)return "";
@@ -1015,6 +1025,7 @@ function panelSugerir(s,ia){
     ${s.porQueNo?`<div class="muted" style="font-size:.72rem;margin-top:6px">${s.porQueNo}</div>`:""}
     ${alts?`<div class="probpanel" style="margin-top:8px"><div class="muted" style="font-size:.72rem;margin-bottom:4px">Alternativas:</div>${alts}</div>`:""}
     ${bloqueLecturas(s.lecturas)}
+    ${bloqueCreencias(s.creencias)}
     ${bloqueIA}
     <button class="btn ghost" style="width:100%;margin-top:8px" onclick="clearPanel()">Cerrar</button>
   </div>`;
@@ -1329,7 +1340,6 @@ function estaGuardada(p){
 function arrancarNueva(){
   analisis=null; partidaAbierta=null; GS=null;
   owner={}; simDealMode="manual"; simStarter=null;
-  sistemaVigente={0:null,1:null,2:null,3:null};   // los sistemas NO se tocan
   pensadaForzada=null; sugeridaK=null; verTodas=false;
   clearPanel(); simIdle(); show("simGame");
   toast("Reparto nuevo · se conservan los sistemas");
@@ -1338,7 +1348,7 @@ function arrancarNueva(){
    La diferencia con Nueva partida es justo esa: aquella vacia el reparto. */
 function irAlReparto(){
   confirmarPerdida(()=>{
-    analisis=null; GS=null; sistemaVigente={0:null,1:null,2:null,3:null};
+    analisis=null; GS=null;
     pensadaForzada=null; sugeridaK=null; verTodas=false;
     clearPanel(); simIdle(); show("simGame");
   });

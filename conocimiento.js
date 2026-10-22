@@ -413,12 +413,123 @@ function pesoModernoEn(avance, dominio) {
 }
 const mismoEquipo = (a, b) => a !== null && b !== null && (a - b) % 2 === 0;
 
+/* ================= QUE SISTEMA LLEVA CADA CONTRARIO =================
+   Asimetria de informacion, que es la que hay en la mesa:
+   · el sistema del COMPAnERO se sabe, porque se acordo antes de jugar;
+   · el de los CONTRARIOS no. Hay que deducirlo viendolos jugar, incluido si
+     usan alguno. Mirar su configuracion seria como verles las fichas.
+
+   ---------------- LA FORMULA, EN UN SOLO SITIO ----------------
+   Creencia inicial = frecuencias reales de la mesa (la mayoria juega clasico,
+   bastantes ninguno, los avanzados combinado, moderno es el menos visto).
+
+   Por cada jugada SUYA que no sea la salida (la salida la marca el convenio de
+   la mesa, no su sistema), se mira que AFIRMA esa pensada segun cada sistema y
+   si lo afirmado se cumple DESPUES:
+     clasico  CPP -> "me quedan mas del numero que castigo"
+              SPP -> "esa era mi ultima de ese numero"
+     moderno  SPP -> "tengo fuerza en el numero que genero"
+              CPP -> "no tengo fuerza en el que genero"
+     doble    los dos dicen lo mismo, asi que no distingue
+   Confirma si luego juega ese numero (o pasa a el, segun lo afirmado);
+   contradice si hace lo contrario. Jugar en COMBINADO confirma si lo hace
+   cualquiera de los dos y solo se contradice si fallan los dos.
+   Una jugada SIN pensada es la senal mas fuerte de NINGUNO.
+
+   Cada jugada multiplica la creencia por (1 + FUERZA * evidencia) y se
+   renormaliza. FUERZA es lo unico que hay que tocar para afinarla. */
+const PRIOR_SISTEMA = { clasico: 0.45, ninguno: 0.30, combinado: 0.15, moderno: 0.10 };
+const FUERZA_EVIDENCIA = 0.55;      // cuanto mueve una jugada
+const PISO_CREENCIA = 0.02;         // ningun sistema se descarta del todo
+
+/* Que afirma esa pensada leida con ese sistema. umbral = cuantas fichas de ese
+   numero hacen falta despues para considerarlo desmentido. */
+function _afirmaSistema(sistema, s) {
+  const t = ficha(s.ficha);
+  if (!t) return null;
+  if (t[0] === t[1]) return { n: t[0], tiene: s.pensada === "CPP", umbral: 1, doble: true };
+  if (sistema === "clasico") {
+    if (s.castiga === null || s.castiga === undefined) return null;
+    return { n: s.castiga, tiene: s.pensada === "CPP", umbral: 1 };
+  }
+  const g = (s.genera || [])[0];
+  if (g === null || g === undefined) return null;
+  // moderno: SPP dice fuerza; CPP solo dice que NO la tiene, asi que hace
+  // falta mas de una ficha despues para desmentirlo
+  return { n: g, tiene: s.pensada === "SPP", umbral: 2 };
+}
+function _compruebaAfirmacion(af, despues, pasesDespues) {
+  if (!af) return 0;
+  let cuantas = 0;
+  despues.forEach(j => { const t = ficha(j.ficha); if (t && (t[0] === af.n || t[1] === af.n)) cuantas++; });
+  const paso = pasesDespues.some(p => (p.ends || []).indexOf(af.n) >= 0);
+  if (af.tiene) { if (cuantas >= 1) return 1; if (paso) return -1; return 0; }
+  if (cuantas >= af.umbral) return -1;
+  if (paso) return 1;
+  return 0;
+}
+
+/* creenciaSistemas(secuencia, pases) -> {0:{prob,mejor,aciertos,fallos,marcadas,notas}, ...}
+   Solo mira lo que se ve en la mesa: nunca recibe la configuracion de nadie. */
+function creenciaSistemas(secuencia, pases) {
+  const sec = (secuencia || []).slice().sort((a, b) => (a.orden || 0) - (b.orden || 0));
+  const pas = (pases || []).slice();
+  const r = {};
+  [0, 1, 2, 3].forEach(j => {
+    const prob = Object.assign({}, PRIOR_SISTEMA);
+    let marcadas = 0, aciertos = 0, fallos = 0, sinMarca = 0;
+    sec.forEach(s => {
+      if (s.jugador !== j) return;
+      const esSalida = s.castiga === null || s.castiga === undefined;
+      if (esSalida) return;                       // la salida la manda el convenio
+      const despues = sec.filter(x => x.jugador === j && (x.orden || 0) > (s.orden || 0));
+      const pd = pas.filter(x => x.jugador === j && (x.orden || 0) > (s.orden || 0));
+      let ev;
+      if (!s.pensada) { sinMarca++; ev = { clasico: -1, moderno: -1, combinado: -1, ninguno: 1 }; }
+      else {
+        marcadas++;
+        const eC = _compruebaAfirmacion(_afirmaSistema("clasico", s), despues, pd);
+        const eM = _compruebaAfirmacion(_afirmaSistema("moderno", s), despues, pd);
+        /* El combinado va por cualquiera de los dos: se confirma si acierta
+           alguno y solo se desmiente si fallan los dos. Probe la media en vez
+           del mejor y la variante relativa (eC-eM): las dos identifican peor
+           en conjunto. Los numeros estan en tests/creencia.test.js. */
+        const eComb = (eC > 0 || eM > 0) ? 1 : ((eC < 0 && eM < 0) ? -1 : 0);
+        const eN = (eC < 0 && eM < 0) ? 1 : ((eC > 0 || eM > 0) ? -0.5 : 0);
+        if (eC > 0 || eM > 0) aciertos++;
+        if (eC < 0 && eM < 0) fallos++;
+        ev = { clasico: eC, moderno: eM, combinado: eComb, ninguno: eN };
+      }
+      Object.keys(prob).forEach(k => {
+        prob[k] = Math.max(PISO_CREENCIA, prob[k] * (1 + FUERZA_EVIDENCIA * ev[k]));
+      });
+      const suma = Object.keys(prob).reduce((a, k) => a + prob[k], 0);
+      Object.keys(prob).forEach(k => { prob[k] = prob[k] / suma; });
+    });
+    Object.keys(prob).forEach(k => { prob[k] = +prob[k].toFixed(4); });
+    const mejor = Object.keys(prob).reduce((a, b) => (prob[b] > prob[a] ? b : a));
+    r[j] = { prob: prob, mejor: mejor, aciertos: aciertos, fallos: fallos,
+             marcadas: marcadas, sinMarca: sinMarca, jugadas: marcadas + sinMarca };
+  });
+  return r;
+}
+
 /* Lee las pensadas ya anotadas y devuelve lo que declaran sus autores.
    Cada pensada se lee con la CONFIGURACION DE QUIEN LA JUGO y con el sistema
    que quedo registrado en esa jugada, nunca con la del que lee.
    La salida por calidad no habla de un palo sino de la mano: va a `juego`. */
+/* La creencia sobre un contrario se traduce en cuanto pesa cada lectura:
+   lo que diria el clasico pesa P(clasico) mas la parte clasica del combinado,
+   y lo mismo del otro lado. P(ninguno) no aporta nada, que es justo lo que
+   significa: ese no esta diciendo nada. */
+function _pesosDesdeCreencia(prob, pm) {
+  return { clasico: (prob.clasico || 0) + (prob.combinado || 0) * (1 - pm),
+           moderno: (prob.moderno || 0) + (prob.combinado || 0) * pm };
+}
+
 function leerPensadas(secuencia, sistemas, opciones) {
   const o = opciones || {};
+  const creencias = o.creencias || null;
   // el convenio de salida es de la mesa; o.convenio lo trae desde la partida
   const convenioMesa = s2 => convenioSalida(o.convenio, s2);
   // Los cajones son Mapa numero -> peso. Una lectura sin ambiguedad pesa 1, asi
@@ -452,15 +563,19 @@ function leerPensadas(secuencia, sistemas, opciones) {
     };
 
     if (!s.pensada || !t) { tras(); return; }
+    /* De quien hay creencia se deduce SIEMPRE: su configuracion no se mira.
+       Del resto (yo y mi companero) se usa lo acordado antes de jugar. */
+    const cre = creencias ? creencias[s.jugador] : null;
     // la salida se lee por su convencion; el resto de la mano, por el sistema
-    if (esSalida ? convenioMesa(cfg) === "ninguna" : cfg.sistema === "ninguno") { tras(); return; }
+    const creeNinguno = cre && cre.mejor === "ninguno" && (cre.prob.ninguno || 0) > 0.6;
+    if (esSalida ? convenioMesa(cfg) === "ninguna"
+                 : (cre ? creeNinguno : cfg.sistema === "ninguno")) { tras(); return; }
 
     const gen = (s.genera || [])[0];
     const doble = t[0] === t[1];
-    /* La marca Clas/Mod solo se usa para las jugadas del propio lector, que es
-       el unico que sabe con que estaba jugando. Para las ajenas se deduce. */
+    // la marca Clas/Mod solo vale para las jugadas del propio lector
     const propia = o.yo !== undefined && o.yo !== null && s.jugador === o.yo;
-    const deduce = cfg.sistema === "combinado" && !propia;
+    const deduce = !!cre || (cfg.sistema === "combinado" && !propia);
     const sis = sistemaEnJuego(cfg, propia ? s.sistema : null);
 
     let n = null, dice = null, opcs = null, coinciden = false;
@@ -480,7 +595,12 @@ function leerPensadas(secuencia, sistemas, opciones) {
          le atribuye un palo concreto. Se deja la nota y nada mas. */
       dice = s.pensada === "SPP" ? "salio sin pensada previa" : "salio con pensada previa";
     } else if (deduce) {
-      const pm = pesoModernoEn(avance, dominio), pc = +(1 - pm).toFixed(3);
+      const pm0 = pesoModernoEn(avance, dominio);
+      // con creencia, el reparto sale de ella; si no, de la doctrina
+      const w = cre ? _pesosDesdeCreencia(cre.prob, pm0) : { clasico: 1 - pm0, moderno: pm0 };
+      const total = w.clasico + w.moderno;
+      const pm = +(total ? w.moderno / total : pm0).toFixed(3);
+      const pc = +(1 - pm).toFixed(3);
       opcs = [];
       if (gen !== null && gen !== undefined) {
         if (s.pensada === "SPP") anota(s.jugador, "fuerte", gen, pm);
@@ -510,7 +630,9 @@ function leerPensadas(secuencia, sistemas, opciones) {
     }
 
     notas.push({ jugador: s.jugador, ficha: s.ficha, pensada: s.pensada,
-                 sistema: deduce ? null : sis, sistemaDeclarado: cfg.sistema,
+                 sistema: deduce ? null : sis,
+                 sistemaDeclarado: cre ? "creencia" : cfg.sistema,
+                 creencia: cre ? cre.prob : null,
                  convencion: esSalida ? convenioMesa(cfg) : null, esSalida: esSalida,
                  deducida: !!deduce, opciones: opcs, coinciden: coinciden,
                  avance: +avance.toFixed(3), dominio: dominio,
@@ -567,13 +689,13 @@ function reconstruirMesa(jugadas) {
   let ends = null;
   const secuencia = [], pases = [];
   (jugadas || []).forEach((x, i) => {
-    if (x.paso) { pases.push({ jugador: x.jugador, ends: ends ? ends.slice() : null }); return; }
+    if (x.paso) { pases.push({ jugador: x.jugador, ends: ends ? ends.slice() : null, orden: i }); return; }
     const t = ficha(x.ficha);
     if (!t) throw new Error("jugada " + i + ": ficha invalida " + x.ficha);
     if (ends === null) {                       // la salida genera sus dos numeros
       ends = [t[0], t[1]];
       secuencia.push({ jugador: x.jugador, ficha: nombreFicha(t), castiga: null,
-                       genera: t[0] === t[1] ? [t[0]] : [t[0], t[1]], ends: ends.slice() });
+                       genera: t[0] === t[1] ? [t[0]] : [t[0], t[1]], ends: ends.slice(), orden: i });
       return;
     }
     const casaI = t[0] === ends[0] || t[1] === ends[0];
@@ -589,7 +711,7 @@ function reconstruirMesa(jugadas) {
     const genera = t[0] === castiga ? t[1] : t[0];
     ends[idx] = genera;
     secuencia.push({ jugador: x.jugador, ficha: nombreFicha(t), punta: lado,
-                     castiga: castiga, genera: [genera], ends: ends.slice() });
+                     castiga: castiga, genera: [genera], ends: ends.slice(), orden: i });
   });
   return { ends: ends, secuencia: secuencia, pases: pases };
 }
@@ -610,6 +732,20 @@ function avanceYDominio(secuencia, yo) {
   return { avance: Math.min(1, puestas / 6), dominio: dominio };
 }
 
+/* Con que sistema juega un combinado ESTA jugada. No se declara: lo decide la
+   doctrina (moderno al principio y llevando la mano, clasico segun cierra y
+   defendiendo). Devuelve tambien el porque, para poder explicarlo. */
+function sistemaPorDoctrina(secuencia, yo, cfg) {
+  const c = configJugador(cfg);
+  if (c.sistema !== "combinado") return { sistema: c.sistema === "ninguno" ? null : c.sistema, motivo: null };
+  const ctx = avanceYDominio(secuencia, yo);
+  const pm = pesoModernoEn(ctx.avance, ctx.dominio);
+  const porTiempo = ctx.avance < 0.5 ? "es temprano en la mano" : "la mano va cerrando";
+  const porMando = ctx.dominio > 0 ? "llevas tu la mano" : ctx.dominio < 0 ? "estas defendiendo" : null;
+  return { sistema: pm >= 0.5 ? "moderno" : "clasico",
+           motivo: porMando ? porTiempo + " y " + porMando : porTiempo };
+}
+
 /* ---------- la pensada que acompana a la jugada ----------
    En esta escuela la ficha y la pensada son UNA sola decision: no basta con
    decir que ficha, hay que decir si se juega CPP o SPP y, en combinado, con
@@ -628,13 +764,8 @@ function pensadaSugerida(estado, m, secuencia) {
   // principio y llevando la mano, clasico segun cierra y defendiendo.
   let sistema = cfg.sistema, motivoSistema = null;
   if (cfg.sistema === "combinado" && !esSalida) {
-    const ctx = avanceYDominio(secuencia, yo);
-    const pm = pesoModernoEn(ctx.avance, ctx.dominio);
-    sistema = pm >= 0.5 ? "moderno" : "clasico";
-    const porTiempo = ctx.avance < 0.5 ? "es temprano en la mano" : "la mano va cerrando";
-    const porMando = ctx.dominio > 0 ? "llevas tu la mano"
-                   : ctx.dominio < 0 ? "estas defendiendo" : null;
-    motivoSistema = porMando ? porTiempo + " y " + porMando : porTiempo;
+    const d = sistemaPorDoctrina(secuencia, yo, cfg);
+    sistema = d.sistema; motivoSistema = d.motivo;
   }
 
   const marca = pensadaPara({
@@ -724,7 +855,10 @@ function sugerirJugada(estado) {
   /* La salida se lee con la convencion DEL QUE SALIO, no con la mia:
      · fuerza  -> salir SPP indica fuerza en ese palo (CPP a un doble no dice nada);
      · calidad -> la pensada habla de la mano entera, no del palo. */
-  const cfgSalidor = configJugador((estado.sistemas || {})[salidorSeat]);
+  /* El convenio de salida es de la mesa, asi que NO se mira la configuracion
+     de un salidor contrario: eso seria informacion que no se tiene. */
+  const cfgSalidor = (salidorSeat === yo || salidorSeat === companero)
+    ? configJugador((estado.sistemas || {})[salidorSeat]) : null;
   // la convencion de salida no depende del sistema: quien no lleva sistema en
   // partida puede haber marcado su salida igual, y se lee igual
   const salidaPorCalidad = convenioSalida(estado.convenio, cfgSalidor) === "calidad";
@@ -749,7 +883,13 @@ function sugerirJugada(estado) {
      se deduce. Cada lectura trae su peso (1 si no hay ambiguedad), y ese peso
      escala lo que empuja, que es justo lo que hace un jugador: fiarse menos de
      lo que no esta seguro. */
-  const lectura = leerPensadas(secuencia, estado.sistemas || {}, { yo: yo, convenio: estado.convenio });
+  /* A los contrarios se les deduce el sistema; al companero no hace falta,
+     porque se acordo antes de jugar. */
+  const creenciasContrarios = {};
+  const todasLasCreencias = creenciaSistemas(secuencia, pases);
+  contrarios.forEach(c => { creenciasContrarios[c] = todasLasCreencias[c]; });
+  const lectura = leerPensadas(secuencia, estado.sistemas || {},
+    { yo: yo, convenio: estado.convenio, creencias: creenciasContrarios });
   const peso = (j, cual, n) => {
     const m = lectura.por[j] && lectura.por[j][cual];
     return m && m.has(n) ? m.get(n) : 0;
@@ -966,6 +1106,7 @@ function sugerirJugada(estado) {
     confianza: confianza,
     desempate: desempate,
     lecturas: lectura.notas,
+    creencias: creenciasContrarios,
     porQueNo: porQueNo,
     alternativas: evaluadas.slice(1).map(m => ({ ficha: m.ficha, punta: m.punta,
       puntos: m.puntos, razones: m.razones.slice(0, 2) })),
@@ -978,6 +1119,7 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports = { analizarMano, asesorSalida, sugerirJugada, reconstruirMesa,
                      pensadaPara, leerPensadas, configJugador, sistemaEnJuego,
                      pesoModernoEn, PESOS_COMBINADO, pensadaSugerida, avanceYDominio,
+                     creenciaSistemas, PRIOR_SISTEMA, FUERZA_EVIDENCIA, sistemaPorDoctrina,
                      convenioSalida, CONVENIO_DEFECTO, SISTEMAS, SALIDAS, ficha,
                      NOMBRE_PALO, ACOMP, PESOS_SUGERENCIA, PROB_DOBLES, PROB_FALLAS, FREQ_PALO };
 }
