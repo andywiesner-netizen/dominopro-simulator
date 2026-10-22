@@ -163,6 +163,109 @@ console.log("         con el companero en 'ninguno': " + consejo(conComp));
 t("control: el del companero si se usa (su sistema es informacion legitima)",
   true, "solo informativo");
 
+/* ================= LA MANO DEL CONTRARIO NO ENTRA =================
+   Para medir si una jugada distingue entre clasico y moderno NO se predice
+   que marca daria cada sistema (eso exigiria ver su mano). Se mira, de lo que
+   hizo DESPUES, cual de las dos lecturas resiste: si dijo "me quedan mas
+   treses" y luego pasa a los treses, esa lectura queda desmentida. Todo lo
+   que entra es visible: la ficha, por que punta la puso, lo que genero, la
+   marca que canto, y sus jugadas y pases posteriores.
+
+   Esta prueba lo fija por partida doble: por el codigo y por el comportamiento. */
+console.log("\n--- la mano del contrario no entra en la creencia ---");
+
+const P = require("../partida.js");
+const fuente = fs.readFileSync(path.join(__dirname, "..", "conocimiento.js"), "utf8");
+const trozo = (desde, hasta) => fuente.slice(fuente.indexOf(desde), fuente.indexOf(hasta));
+const PROHIBIDO = /\bmanos\b|\bhands\b|miMano|analizarMano/;
+[["function _afirmaSistema", "function _compruebaAfirmacion"],
+ ["function _compruebaAfirmacion", "/* creenciaSistemas"],
+ ["function creenciaSistemas", "function _pesosDesdeCreencia"]].forEach(([a, b]) => {
+  const c = trozo(a, b);
+  t("ni una mano en " + a.replace("function ", ""), !PROHIBIDO.test(c),
+    (c.match(PROHIBIDO) || [""])[0]);
+});
+
+/* La prueba de verdad: dos partidas IGUALES en lo que se ve y distintas en lo
+   que no. Si la creencia (o el consejo) cambia, es que mira lo que no debe. */
+function partidaJugada() {
+  const todas = [];
+  for (let a = 0; a <= 6; a++) for (let b = a; b <= 6; b++) todas.push(a + "-" + b);
+  for (let i = todas.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [todas[i], todas[j]] = [todas[j], todas[i]]; }
+  const ASI = ["S", "E", "N", "O"];
+  const manos = { S: todas.slice(0, 7), E: todas.slice(7, 14), N: todas.slice(14, 21), O: todas.slice(21, 28) };
+  const p = { version: 1, id: "p-fuga", titulo: "Fuga", fecha: null, autor: "", notas: "",
+    etiquetas: [], modo: "simulador", convenio: "ninguna",
+    jugadores: { S: { nombre: null, sistema: "clasico" }, E: { nombre: null, sistema: "moderno" },
+                 N: { nombre: null, sistema: "clasico" }, O: { nombre: null, sistema: "combinado" } },
+    manos: JSON.parse(JSON.stringify(manos)), salidor: "S", jugadas: [] };
+  const quedan = JSON.parse(JSON.stringify(manos));
+  let ends = null, turno = 0;
+  for (let k = 0; k < 11; k++) {
+    const L = ASI[turno]; let puesta = null;
+    for (const f of quedan[L]) {
+      const [a, b] = f.split("-").map(Number);
+      if (ends === null) { puesta = { ficha: f, lado: null }; break; }
+      if (a === ends[0] || b === ends[0]) { puesta = { ficha: f, lado: "I" }; break; }
+      if (a === ends[1] || b === ends[1]) { puesta = { ficha: f, lado: "D" }; break; }
+    }
+    if (!puesta) p.jugadas.push({ n: p.jugadas.length + 1, jugador: L, pase: true });
+    else {
+      quedan[L].splice(quedan[L].indexOf(puesta.ficha), 1);
+      const [a, b] = puesta.ficha.split("-").map(Number);
+      if (ends === null) ends = [a, b];
+      else { const q = puesta.lado === "I" ? 0 : 1; ends[q] = (a === ends[q] ? b : a); }
+      p.jugadas.push({ n: p.jugadas.length + 1, jugador: L, ficha: puesta.ficha, lado: puesta.lado,
+                       pensada: (p.jugadas.length % 2) ? "CPP" : "SPP", veredicto: null, comentario: "" });
+    }
+    turno = (turno + 1) % 4;
+  }
+  return { partida: p, quedan: quedan };
+}
+
+const { partida: pA, quedan } = partidaJugada();
+t("la partida de prueba es valida", P.validar(pA).ok, JSON.stringify(P.validar(pA).errores));
+
+/* Variante: a los DOS contrarios (E y O) se les cambian las fichas que aun no
+   han jugado. Lo visible -- lo jugado, las puntas, las marcas, los pases -- es
+   identico; lo oculto, distinto. */
+const pB = JSON.parse(JSON.stringify(pA));
+const jugadasDe = L => pA.jugadas.filter(j => !j.pase && j.jugador === L).map(j => j.ficha);
+const sobranE = quedan.E.slice(), sobranO = quedan.O.slice();
+// se intercambian solo tantas como quepan: las manos tienen que seguir
+// siendo de siete, o la partida deja de ser valida y la prueba no vale
+const cuantas = Math.min(sobranE.length, sobranO.length);
+pB.manos.E = jugadasDe("E").concat(sobranO.slice(0, cuantas), sobranE.slice(cuantas));
+pB.manos.O = jugadasDe("O").concat(sobranE.slice(0, cuantas), sobranO.slice(cuantas));
+t("la variante tambien es valida", P.validar(pB).ok, JSON.stringify(P.validar(pB).errores));
+t("y las manos ocultas de los contrarios son distintas",
+  JSON.stringify(pA.manos.E) !== JSON.stringify(pB.manos.E),
+  JSON.stringify(pA.manos.E) + " vs " + JSON.stringify(pB.manos.E));
+
+const n = pA.jugadas.length;
+const estA = P.estadoPara(pA, n, "S"), estB = P.estadoPara(pB, n, "S");
+eq("lo que ve Sur es exactamente lo mismo", JSON.stringify(estA), JSON.stringify(estB));
+
+const creA = C.creenciaSistemas(estA.secuencia, estA.pases);
+const creB = C.creenciaSistemas(estB.secuencia, estB.pases);
+[1, 3].forEach(c => {
+  eq("la creencia sobre " + ["S","E","N","O"][c] + " no cambia", creA[c].prob, creB[c].prob);
+});
+const sugA = C.sugerirJugada(estA), sugB = C.sugerirJugada(estB);
+eq("y el consejo tampoco",
+  sugA ? sugA.recomendada.ficha + "|" + sugA.recomendada.puntos : null,
+  sugB ? sugB.recomendada.ficha + "|" + sugB.recomendada.puntos : null);
+
+// control: si de verdad se esta leyendo algo, cambiar lo VISIBLE si debe mover
+const pC = JSON.parse(JSON.stringify(pA));
+let cambiada = false;
+pC.jugadas.forEach(j => { if (!j.pase && j.jugador === "E" && j.pensada && !cambiada) {
+  j.pensada = j.pensada === "CPP" ? "SPP" : "CPP"; cambiada = true; } });
+const creC = C.creenciaSistemas(P.estadoPara(pC, n, "S").secuencia, P.estadoPara(pC, n, "S").pases);
+t("control: cambiar una marca VISIBLE si mueve la creencia",
+  JSON.stringify(creA[1].prob) !== JSON.stringify(creC[1].prob),
+  JSON.stringify(creA[1].prob) + " vs " + JSON.stringify(creC[1].prob));
+
 console.log("\n--- sin jugadas no se inventa nada ---");
 const vacia = C.creenciaSistemas([], []);
 eq("arranca de las frecuencias reales", vacia[1].prob, C.PRIOR_SISTEMA);

@@ -321,6 +321,14 @@
     .hoja .star,.hoja .pmark{display:none !important;}
   }
 
+  .avisomatriz{background:rgba(230,164,23,.16); border:1px solid rgba(230,164,23,.5);
+               border-radius:8px; padding:6px 8px; font-size:.7rem; color:var(--ivory);}
+  table.matriz{width:100%; border-collapse:collapse; font-size:.66rem; margin:2px 0 4px;}
+  table.matriz th{font-weight:700; color:var(--dim); padding:2px 3px; text-align:right;}
+  table.matriz th:first-child{text-align:left;}
+  table.matriz td{text-align:right; padding:2px 3px; border-top:1px solid rgba(255,255,255,.08);}
+  table.matriz td.fuerte{font-weight:800; color:var(--gold);}
+  table.matriz small{display:block; color:var(--dim); font-size:.84em;}
   .dealconv{margin:8px 0 2px; text-align:center;}
   .convmesa{font-size:.74rem; color:var(--ivory); display:inline-flex; align-items:center; gap:6px;
             flex-wrap:wrap; justify-content:center;}

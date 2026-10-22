@@ -2359,6 +2359,112 @@ function construirHoja(ejs,o){
 }
 $("#tbEjercicios").onclick=()=>panelEjercicios({temas:[]});
 
+/* ================= MATRIZ DE SISTEMAS =================
+   El experimento central: cuatro jugadores movidos por Sugerir, cada pareja
+   con un sistema, para medir si informar sirve y cual rinde mas.
+
+   El aviso de que esto mide NUESTRA implementacion y no el sistema sale en la
+   propia pantalla, no solo en el reporte: quien lea la tabla tiene que leerlo
+   al lado. */
+const CLAVE_MATRIZ = "matriz_v1";
+function repartidorMatriz(semilla){
+  return function(i){
+    let x=(semilla+i*2654435761)>>>0;
+    const rnd=()=>{x=(x*1664525+1013904223)>>>0;return x/4294967296;};
+    const t=allTiles().map(p=>key(p[0],p[1]));
+    for(let k=t.length-1;k>0;k--){const j=Math.floor(rnd()*(k+1));[t[k],t[j]]=[t[j],t[k]];}
+    return [0,1,2,3].map(p=>t.slice(p*7,p*7+7));
+  };
+}
+function avisoMatriz(){
+  return `<div class="avisomatriz"><b>Cuidado al leer esto.</b> ${AVISO_MATRIZ}</div>`;
+}
+function panelMatriz(){
+  dpanel(`<div class="ovcard" style="max-height:82vh;overflow:auto">
+    <div class="center" style="margin-bottom:6px"><b>\u{1F4CA} Matriz de sistemas</b></div>
+    ${avisoMatriz()}
+    <div class="muted" style="font-size:.74rem;margin-top:6px">Los cuatro jugadores mueven con
+      \u{1F4A1} Sugerir, que solo usa información legítima. Cada celda cruza el sistema de una
+      pareja con el de la otra, con los mismos repartos.</div>
+    <label class="fld">Manos por celda</label>
+    <select id="mtManos" class="txtcampo">
+      <option value="100">100 (rápido, muy ruidoso)</option>
+      <option value="500" selected>500</option>
+      <option value="2000">2000 (tarda)</option>
+    </select>
+    <div class="btnrow grow" style="margin-top:10px">
+      <button class="btn blue" id="mtCordura">Control de cordura</button>
+      <button class="btn gold" id="mtCorrer">Correr la matriz</button>
+    </div>
+    <div class="btnrow grow" style="margin-top:6px">
+      <button class="btn ghost" id="mtUltima">Ver la última</button>
+      <button class="btn ghost" onclick="clearPanel()">Cerrar</button>
+    </div>
+    <div id="mtSalida"></div></div>`);
+  $("#mtCordura").onclick=()=>correrMatriz(true);
+  $("#mtCorrer").onclick=()=>correrMatriz(false);
+  $("#mtUltima").onclick=()=>{
+    let g=null; try{ g=JSON.parse(localStorage.getItem(CLAVE_MATRIZ)||"null"); }catch(e){}
+    if(!g){toast("Todavía no has corrido ninguna");return;}
+    $("#mtSalida").innerHTML=tablaMatriz(g);
+  };
+}
+function correrMatriz(soloCordura){
+  const n=+$("#mtManos").value;
+  const semilla=Date.now()%100000;
+  $("#mtSalida").innerHTML=`<div class="muted center" style="margin-top:10px">Jugando…</div>`;
+  // en un hueco, para que la pantalla llegue a pintar el aviso
+  setTimeout(()=>{
+    const rep=repartidorMatriz(semilla);
+    if(soloCordura){
+      const c=cordura(n,rep,convenioMesa);
+      $("#mtSalida").innerHTML=tablaCordura(c,n);
+      return;
+    }
+    const m=matriz(n,rep,convenioMesa);
+    const g={fecha:ahoraISO(),semilla:semilla,manosPorCelda:n,convenio:convenioMesa,
+             aviso:m.aviso,celdas:m.celdas,sistemas:m.sistemas};
+    try{ localStorage.setItem(CLAVE_MATRIZ,JSON.stringify(g)); }catch(e){}
+    $("#mtSalida").innerHTML=tablaMatriz(g);
+  },60);
+}
+function tablaCordura(c,n){
+  const filas=c.filas.map(f=>`<div class="row"><span>${f.sistema}</span>`+
+    `<span>gana 0-2 <b>${f.pctA}%</b> · sale y gana <b>${f.pctSale}%</b></span></div>`).join("");
+  return `<div class="probpanel" style="margin-top:10px">
+    <div class="muted" style="font-size:.72rem;margin-bottom:4px">Control · ${n} manos por sistema, los dos bandos con el mismo</div>
+    ${filas}
+    <div class="muted" style="font-size:.68rem;margin-top:6px">Esperado: gana 0-2 cerca del 50 %
+      (solo distingue el reparto) y sale y gana alrededor del 60 %.</div>
+    <div style="font-weight:800;margin-top:4px">${c.ok?"✓ Control superado":"✗ Hay un fallo en el arnes, no un hallazgo"}</div>
+  </div>`;
+}
+function tablaMatriz(g){
+  const S=g.sistemas||SISTEMAS_TORNEO;
+  const sim=simetrizar({sistemas:S,celdas:g.celdas});
+  const cab=`<tr><th></th>${S.map(b=>`<th>${b.slice(0,5)}</th>`).join("")}</tr>`;
+  const cuerpo=(tabla,err)=>S.map(a=>`<tr><th>${a}</th>`+S.map(b=>{
+    const x=tabla[a][b];
+    const e=err?err[a][b]:null;
+    const fuerte=e!==null&&Math.abs(x)>2*e;
+    return `<td${fuerte?' class="fuerte"':''}>${x>0?"+":""}${x}${e!==null?`<small>±${e}</small>`:""}</td>`;
+  }).join("")+"</tr>").join("");
+  const err=(100/Math.sqrt(2*g.manosPorCelda)).toFixed(2);
+  return `<div class="probpanel" style="margin-top:10px">
+    ${avisoMatriz()}
+    <div class="muted" style="font-size:.72rem;margin:6px 0 2px">Ventaja de la fila sobre la columna,
+      en puntos de % de victorias · ${g.manosPorCelda} manos por celda (${g.manosPorCelda*16} en total)</div>
+    <table class="matriz">${cab}${cuerpo(sim.victorias,null)}</table>
+    <div class="muted" style="font-size:.68rem">Error aproximado ±${err}. Menos que eso es ruido.</div>
+    <div class="muted" style="font-size:.72rem;margin:8px 0 2px">Lo mismo en puntos por mano, con su error</div>
+    <table class="matriz">${cab}${cuerpo(sim.puntos,sim.errPuntos)}</table>
+    <div class="muted" style="font-size:.68rem">En negrita, lo que pasa del doble de su error.
+      La diagonal es cero por construcción: cada cruce se compara con su espejo para
+      cancelar el sesgo del reparto.</div>
+  </div>`;
+}
+$("#tbMatriz").onclick=panelMatriz;
+
 // arranque: entra directo a la mesa, vacía hasta que se reparta (Al Azar / Reparto)
 buildPicker();
 simIdle();show('simGame');

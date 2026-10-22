@@ -5,7 +5,7 @@
 const CACHE = "domino-v12";
 const ASSETS = [
   "./", "./index.html", "./styles.css", "./engine.js", "./conocimiento.js", "./clasificacion.js", "./partida.js",
-  "./ejercicios.js", "./nube.js", "./ui.js",
+  "./ejercicios.js", "./torneo.js", "./nube.js", "./ui.js",
   "./manifest.webmanifest",
   "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"
 ];
