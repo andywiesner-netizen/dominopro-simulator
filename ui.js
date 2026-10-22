@@ -924,8 +924,24 @@ function bloqueCreencias(cre){
     else if(c.aciertos) visto=`lleva ${pl(c.aciertos,"jugada que encaja","jugadas que encajan")} de ${c.marcadas}`;
     else if(c.fallos) visto=`lleva ${pl(c.fallos,"jugada que no encaja","jugadas que no encajan")} con nada`;
     else visto=`lleva ${pl(c.marcadas,"jugada marcada","jugadas marcadas")} que aún no dicen nada`;
+    /* No todas las jugadas valen lo mismo: la mayoria no distingue entre
+       sistemas. Decirlo es la diferencia entre leer y adivinar. */
+    const sueltas=(c.notas||[]).slice(-3).map(n=>{
+      if(n.pensada===null)
+        return `<div class="muted" style="font-size:.66rem">· ${n.ficha} sin marcar: eso solo lo hace quien no lleva sistema</div>`;
+      if(!n.diagnostica)
+        return `<div class="muted" style="font-size:.66rem">· ${n.ficha} ${n.pensada}: esta jugada no distingue entre sistemas</div>`;
+      return `<div class="muted" style="font-size:.66rem">· ${n.ficha} ${n.pensada}: <b>solo tiene sentido en ${NOMBRE_SIS_LARGO[n.apunta]}</b></div>`;
+    }).join("");
+    /* Las jugadas sin marcar tambien distinguen (y mucho): se cuentan aparte
+       porque no entran en el reparto clasico/moderno. */
+    const reparto=c.sinMarca&&!c.marcadas
+      ? `<div class="muted" style="font-size:.66rem">no marcar es por si solo la señal más clara</div>`
+      : c.diagnosticas
+      ? `<div class="muted" style="font-size:.66rem">${c.diagnosticas} de ${c.marcadas} marcadas distinguen algo (${c.apuntanC} a clásico, ${c.apuntanM} a moderno)</div>`
+      : `<div class="muted" style="font-size:.66rem">ninguna de sus jugadas marcadas distingue todavía</div>`;
     return `<div class="row"><span>${ROLE[j]} ${visto}: ${seguro} <b>${NOMBRE_SIS_LARGO[c.mejor]}</b></span>`+
-      `<span class="muted">${pct}%</span></div>`;
+      `<span class="muted">${pct}%</span></div>`+reparto+sueltas;
   }).join("");
   return `<div class="probpanel" style="margin-top:8px">
     <div class="muted" style="font-size:.72rem;margin-bottom:4px">Qué sistema parece que llevan los contrarios:</div>${filas}

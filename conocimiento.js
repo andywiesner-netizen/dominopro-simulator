@@ -436,6 +436,13 @@ const mismoEquipo = (a, b) => a !== null && b !== null && (a - b) % 2 === 0;
    cualquiera de los dos y solo se contradice si fallan los dos.
    Una jugada SIN pensada es la senal mas fuerte de NINGUNO.
 
+   No todas las jugadas valen igual: entre clasico y moderno cuenta solo lo
+   que las SEPARA. Si las dos lecturas corren la misma suerte, la jugada no
+   distingue y vale cero. Medido sobre 30 manos por sistema: de unas 5 jugadas
+   marcadas por mano, ~1.1 son dobles (los dos sistemas dicen lo mismo), ~1.9
+   salen empatadas y solo ~2.4 separan de verdad -- y de esas, el 60% apunta
+   al sistema correcto.
+
    Cada jugada multiplica la creencia por (1 + FUERZA * evidencia) y se
    renormaliza. FUERZA es lo unico que hay que tocar para afinarla. */
 const PRIOR_SISTEMA = { clasico: 0.45, ninguno: 0.30, combinado: 0.15, moderno: 0.10 };
@@ -477,7 +484,9 @@ function creenciaSistemas(secuencia, pases) {
   const r = {};
   [0, 1, 2, 3].forEach(j => {
     const prob = Object.assign({}, PRIOR_SISTEMA);
-    let marcadas = 0, aciertos = 0, fallos = 0, sinMarca = 0;
+    let marcadas = 0, aciertos = 0, fallos = 0, sinMarca = 0, diagnosticas = 0;
+    let apuntanC = 0, apuntanM = 0;
+    const notas = [];
     sec.forEach(s => {
       if (s.jugador !== j) return;
       const esSalida = s.castiga === null || s.castiga === undefined;
@@ -485,20 +494,43 @@ function creenciaSistemas(secuencia, pases) {
       const despues = sec.filter(x => x.jugador === j && (x.orden || 0) > (s.orden || 0));
       const pd = pas.filter(x => x.jugador === j && (x.orden || 0) > (s.orden || 0));
       let ev;
-      if (!s.pensada) { sinMarca++; ev = { clasico: -1, moderno: -1, combinado: -1, ninguno: 1 }; }
+      if (!s.pensada) {
+        sinMarca++;
+        notas.push({ ficha: s.ficha, pensada: null, diagnostica: true, apunta: "ninguno", separacion: 1 });
+        ev = { clasico: -1, moderno: -1, combinado: -1, ninguno: 1 };
+      }
       else {
         marcadas++;
         const eC = _compruebaAfirmacion(_afirmaSistema("clasico", s), despues, pd);
         const eM = _compruebaAfirmacion(_afirmaSistema("moderno", s), despues, pd);
-        /* El combinado va por cualquiera de los dos: se confirma si acierta
-           alguno y solo se desmiente si fallan los dos. Probe la media en vez
-           del mejor y la variante relativa (eC-eM): las dos identifican peor
-           en conjunto. Los numeros estan en tests/creencia.test.js. */
-        const eComb = (eC > 0 || eM > 0) ? 1 : ((eC < 0 && eM < 0) ? -1 : 0);
+        /* ------- CUANTO DISCRIMINA ESTA JUGADA -------
+           La mayoria de las jugadas NO distinguen: en un doble los dos
+           sistemas dicen literalmente lo mismo, y en muchas otras lo que
+           afirman se cumple (o falla) a la vez. Esas no informan de nada y
+           tienen que valer CERO, por mas que se repitan. Solo separa cuando
+           a uno le sale bien y al otro no: entonces la jugada vale lo que se
+           alejen sus veredictos. Una diagnostica pesa mas que diez indiferentes. */
+        const separacion = Math.abs(eC - eM) / 2;       // 0, 0.5 o 1
+        const diagnostica = separacion > 0;
+        if (diagnostica) diagnosticas++;
+        const apunta = eC > eM ? "clasico" : eM > eC ? "moderno" : null;
+        if (apunta === "clasico") apuntanC++;
+        if (apunta === "moderno") apuntanM++;
+        /* El combinado NO se confirma por "encaja cualquiera de los dos": asi
+           siempre gana y se convierte en un sumidero (medido: se llevaba ~0.42
+           fuera cual fuera el sistema real). Lo que de verdad delata a un
+           combinado es ALTERNAR: unas jugadas apuntan a clasico y otras a
+           moderno. Eso se decide al final, con todas a la vista, no jugada a
+           jugada. Aqui solo se desmiente si fallan los dos.
+           El ninguno gana cuando no encaja nada. */
+        const eComb = (eC < 0 && eM < 0) ? -1 : 0;
         const eN = (eC < 0 && eM < 0) ? 1 : ((eC > 0 || eM > 0) ? -0.5 : 0);
         if (eC > 0 || eM > 0) aciertos++;
         if (eC < 0 && eM < 0) fallos++;
-        ev = { clasico: eC, moderno: eM, combinado: eComb, ninguno: eN };
+        notas.push({ ficha: s.ficha, pensada: s.pensada, diagnostica: diagnostica,
+                     apunta: apunta, separacion: separacion });
+        ev = { clasico: (eC - eM) / 2, moderno: (eM - eC) / 2,
+               combinado: eComb, ninguno: eN };
       }
       Object.keys(prob).forEach(k => {
         prob[k] = Math.max(PISO_CREENCIA, prob[k] * (1 + FUERZA_EVIDENCIA * ev[k]));
@@ -506,10 +538,23 @@ function creenciaSistemas(secuencia, pases) {
       const suma = Object.keys(prob).reduce((a, k) => a + prob[k], 0);
       Object.keys(prob).forEach(k => { prob[k] = prob[k] / suma; });
     });
+    /* ------- ALTERNAR ES LA FIRMA DEL COMBINADO -------
+       Con todas las jugadas diagnosticas a la vista: si unas apuntan a clasico
+       y otras a moderno, es que va cambiando. Si todas apuntan al mismo lado,
+       no es combinado por mucho que cada jugada encajase con algo. */
+    const dia = apuntanC + apuntanM;
+    if (dia >= 2) {
+      const mezcla = Math.min(apuntanC, apuntanM) / dia;   // 0 = siempre lo mismo, 0.5 = mitad y mitad
+      prob.combinado = Math.max(PISO_CREENCIA, prob.combinado * (1 + FUERZA_EVIDENCIA * (4 * mezcla - 1)));
+      const suma2 = Object.keys(prob).reduce((a, k) => a + prob[k], 0);
+      Object.keys(prob).forEach(k => { prob[k] = prob[k] / suma2; });
+    }
     Object.keys(prob).forEach(k => { prob[k] = +prob[k].toFixed(4); });
     const mejor = Object.keys(prob).reduce((a, b) => (prob[b] > prob[a] ? b : a));
     r[j] = { prob: prob, mejor: mejor, aciertos: aciertos, fallos: fallos,
-             marcadas: marcadas, sinMarca: sinMarca, jugadas: marcadas + sinMarca };
+             marcadas: marcadas, sinMarca: sinMarca, jugadas: marcadas + sinMarca,
+             diagnosticas: diagnosticas, apuntanC: apuntanC, apuntanM: apuntanM,
+             notas: notas };
   });
   return r;
 }

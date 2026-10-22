@@ -68,7 +68,7 @@ console.log("\n--- convergencia al sistema real ---");
 /* Para cada sistema real se juegan varias manos y se mira a partir de cuantas
    jugadas SUYAS la creencia acierta y ya no se tuerce. */
 function convergencia(real, manos) {
-  const pasos = [], finales = [];
+  const pasos = [], finales = [], pReal = [], nDiag = [];
   for (let k = 0; k < manos; k++) {
     const sis = { 0: "clasico", 1: real, 2: "clasico", 3: real };
     const hist = manoCon(sis);
@@ -88,25 +88,34 @@ function convergencia(real, manos) {
         (s.castiga !== null && s.castiga !== undefined)).length;
       if (cre.mejor === real) { if (acertadaDesde === null) acertadaDesde = jugadasSuyas; }
       else acertadaDesde = null;
-      if (n === hist.length) finales.push(cre.mejor === real);
+      if (n === hist.length) {
+        finales.push(cre.mejor === real);
+        pReal.push(cre.prob[real]); nDiag.push(cre.diagnosticas);
+      }
     }
     pasos.push(acertadaDesde);
   }
   const buenas = pasos.filter(x => x !== null);
   const media = buenas.length ? (buenas.reduce((a, b) => a + b, 0) / buenas.length) : null;
+  const prom = a => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
   return { acierta: finales.filter(Boolean).length, de: manos,
-           jugadas: media === null ? "-" : media.toFixed(1) };
+           jugadas: media === null ? "-" : media.toFixed(1),
+           prob: prom(pReal).toFixed(3), diag: prom(nDiag).toFixed(1) };
 }
 
 const MANOS = 12;
-console.log("  sistema real | acierta al final | jugadas suyas hasta acertar");
-console.log("  -------------+------------------+----------------------------");
+/* Tres columnas, porque "acierta" a secas engana: lo que importa es cuanta
+   probabilidad se lleva el sistema real, y cuantas jugadas de la mano
+   distinguen algo. Si casi ninguna distingue, no hay formula que lo arregle. */
+console.log("  sistema real | acierta | P(real) | diagnosticas/mano | hasta acertar");
+console.log("  -------------+---------+---------+-------------------+--------------");
 const resumen = {};
 ["clasico", "moderno", "combinado", "ninguno"].forEach(real => {
   const r = convergencia(real, MANOS);
   resumen[real] = r;
-  console.log("  " + real.padEnd(12) + " |      " + (r.acierta + "/" + r.de).padEnd(12) +
-              "|  " + r.jugadas);
+  console.log("  " + real.padEnd(12) + " |  " + (r.acierta + "/" + r.de).padEnd(6) +
+              " |  " + String(r.prob).padEnd(6) + " |       " + String(r.diag).padEnd(12) +
+              "| " + r.jugadas);
 });
 t("con 'ninguno' acierta casi siempre: no marcar es la senal mas clara",
   resumen.ninguno.acierta >= MANOS - 1, JSON.stringify(resumen.ninguno));
@@ -115,6 +124,12 @@ t("con 'ninguno' acierta casi siempre: no marcar es la senal mas clara",
    y ninguno (la senal mas clara) se identifiquen. Moderno hoy NO se
    identifica: la evidencia apunta en su direccion pero no vence al prior. */
 t("clasico se identifica", resumen.clasico.acierta >= MANOS - 2, JSON.stringify(resumen.clasico));
+t("y con mas probabilidad que su prior (no es el prior hablando)",
+  +resumen.clasico.prob > C.PRIOR_SISTEMA.clasico,
+  resumen.clasico.prob + " vs prior " + C.PRIOR_SISTEMA.clasico);
+t("al moderno la evidencia le sube la probabilidad aunque no gane",
+  +resumen.moderno.prob > C.PRIOR_SISTEMA.moderno,
+  resumen.moderno.prob + " vs prior " + C.PRIOR_SISTEMA.moderno);
 console.log("  (moderno y combinado quedan por afinar: ver el reporte)");
 
 console.log("\n--- Sugerir no usa el sistema CONFIGURADO de un contrario ---");
