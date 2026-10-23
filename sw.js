@@ -1,8 +1,8 @@
 ﻿/* Service worker: cachea la app para que funcione sin conexiÃ³n.
-   Al subir una versiÃ³n nueva sube el numero: 'domino-v12' -> 'domino-v12', etc.
+   Al subir una versiÃ³n nueva sube el numero: 'domino-v13' -> 'domino-v13', etc.
    Si no, los dispositivos que ya tienen la app instalada se quedan con
    la version vieja. scripts/bump-sw.ps1 lo hace solo. */
-const CACHE = "domino-v12";
+const CACHE = "domino-v13";
 const ASSETS = [
   "./", "./index.html", "./styles.css", "./engine.js", "./conocimiento.js", "./clasificacion.js", "./partida.js",
   "./ejercicios.js", "./torneo.js", "./nube.js", "./ui.js",
